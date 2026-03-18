@@ -38,7 +38,7 @@ export default function AssessorPage() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
           {MOCK_ASSESSORS.map(a => (
-            <div key={a.id} className={cn("card-hover transition-all", selected===a.id?"ring-2 ring-brand-indigo")}>
+            <div key={a.id} className={cn("card-hover transition-all", selected === a.id && "ring-2 ring-brand-indigo")}>
               {/* Header */}
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-12 h-12 bg-brand-indigo/10 rounded-xl flex items-center justify-center shrink-0 text-brand-indigo font-bold text-lg">

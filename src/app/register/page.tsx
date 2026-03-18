@@ -182,7 +182,7 @@ function PaymentForm({ certType, assessorId, onComplete }: { certType: CertType 
   const [name, setName]       = useState("");
   const [loading, setLoading] = useState(false);
 
-  const baseCost   = certType ? CERT_PRICING[certType].price : 0;
+  const baseCost   = certType ? (CERT_PRICING[certType].price ?? 0) : 0;
   const assessor   = MOCK_ASSESSORS.find(a => a.id === assessorId);
   const assessFee  = assessor ? (certType === "self" ? assessor.fee_self : assessor.fee_digital) : 0;
   const total      = baseCost + assessFee;

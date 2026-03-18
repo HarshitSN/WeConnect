@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle, Shield, FileText, QrCode, Download, Link2, Lock, ArrowRight, Sparkles, Award } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import FileUpload from "@/components/ui/FileUpload";
@@ -168,17 +168,25 @@ function CertificatePreview({ certType }: { certType: CertType }) {
 }
 
 export default function CertifyPage() {
-  const searchParams  = useSearchParams();
   const router        = useRouter();
-  const preselected   = searchParams.get("type") as CertType | null;
 
   const [phase, setPhase]     = useState<Phase>("choose");
-  const [certType, setCertType] = useState<CertType | null>(preselected);
+  const [certType, setCertType] = useState<CertType | null>(null);
   const [attestation, setAtt] = useState<boolean[]>([]);
   const [docsUploaded, setDocs] = useState<Record<string, boolean>>({});
 
+  useEffect(() => {
+    const type = new URLSearchParams(window.location.search).get("type");
+    if (type === "self" || type === "digital" || type === "auditor") {
+      setCertType(type);
+    }
+  }, []);
+
   const allAttested     = attestation.length > 0 && attestation.every(Boolean);
-  const requiredDocs    = certType ? REQUIRED_DOCS[certType] ?? [] : [];
+  const requiredDocs =
+    certType === "self" || certType === "digital"
+      ? REQUIRED_DOCS[certType]
+      : [];
   const allDocsUploaded = requiredDocs.every(d => docsUploaded[d.type]);
 
   const PHASES: { key: Phase; label: string; icon: React.ComponentType<any> }[] = [
