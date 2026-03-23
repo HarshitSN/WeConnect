@@ -83,6 +83,59 @@ export interface RegistrationState {
   payment_complete?: boolean;
 }
 
+export type ConversationMessageType = "bot_question" | "user_answer" | "bot_confirm" | "system_hint";
+
+export interface ConversationMessage {
+  id: string;
+  type: ConversationMessageType;
+  text: string;
+  timestamp: string;
+}
+
+export type ConversationStepId =
+  | "business_name"
+  | "women_owned"
+  | "country"
+  | "us_citizen"
+  | "visa_type"
+  | "webank_certified"
+  | "naics_codes"
+  | "unspsc_codes"
+  | "designations"
+  | "owner_name"
+  | "owner_gender"
+  | "owner_percent"
+  | "owner_add_more"
+  | "num_employees"
+  | "revenue_range"
+  | "additional_certs"
+  | "business_description"
+  | "cert_type"
+  | "assessor"
+  | "done";
+
+export interface ConversationPointer {
+  stepId: ConversationStepId;
+  ownerIndex?: number;
+}
+
+export interface StepValidationResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface AgentParseResult {
+  ok: boolean;
+  confidence: number;
+  updates?: Partial<RegistrationState>;
+  ownershipUpdate?: OwnershipEntry[];
+  assessorId?: string;
+  confirmation: string;
+  clarification?: string;
+  next: ConversationPointer;
+  done?: boolean;
+}
+
 // ── Verification ──────────────────────────────────────────────────────────────
 export interface VerificationResult {
   id: string;
