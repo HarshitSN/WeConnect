@@ -5,7 +5,11 @@ import type { Dispatch, SetStateAction } from "react";
 import VoiceInput from "@/components/ui/VoiceInput";
 import ConversationTranscript from "@/components/register/ConversationTranscript";
 import VoiceAgentControls from "@/components/register/VoiceAgentControls";
-import { getNextQuestion, initialPointer } from "@/lib/voice-agent/engine";
+import ProgressStepper from "@/components/register/ProgressStepper";
+import AIOrb from "@/components/ui/AIOrb";
+import type { OrbState } from "@/components/ui/AIOrb";
+import CompletionCelebration from "@/components/ui/CompletionCelebration";
+import { getNextQuestion, initialPointer, getSectionIndex } from "@/lib/voice-agent/engine";
 import type { ConversationMessage, ConversationPointer, RegistrationState } from "@/types";
 
 interface HistoryEntry {
@@ -117,6 +121,7 @@ export default function ConversationRegistrationShell({
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceResetSignal, setVoiceResetSignal] = useState(0);
+  const [celebrationText, setCelebrationText] = useState<string | null>(null);
   const [voiceDebug, setVoiceDebug] = useState<{ lastUtterance: string; ts: string; dropped: number }>({
     lastUtterance: "",
     ts: "",
@@ -127,6 +132,21 @@ export default function ConversationRegistrationShell({
   const speakingRef = useRef(isAssistantSpeaking);
 
   const currentPrompt = useMemo(() => getNextQuestion(pointer, answers), [pointer, answers]);
+
+  const orbState: OrbState = !running ? "idle" : (busy || isAssistantSpeaking) ? "speaking" : isListening ? "listening" : "idle";
+
+  // Detect section transitions for celebration
+  const prevSectionRef = useRef(getSectionIndex(pointer.stepId));
+  useEffect(() => {
+    const newSection = getSectionIndex(pointer.stepId);
+    if (newSection > prevSectionRef.current && running) {
+      const sectionNames = ["Business Info", "Location", "Industry", "Ownership", "Profile", "Certification"];
+      const completedName = sectionNames[prevSectionRef.current] ?? "Section";
+      setCelebrationText(`${completedName} complete!`);
+      setTimeout(() => setCelebrationText(null), 2500);
+    }
+    prevSectionRef.current = newSection;
+  }, [pointer.stepId, running]);
 
   const addMessage = useCallback((type: ConversationMessage["type"], text: string) => {
     setMessages((prev) => [...prev, mkMessage(type, text)]);
@@ -265,7 +285,7 @@ export default function ConversationRegistrationShell({
     const next = nextBySkip(pointer, answers);
     setPointer(next);
     const prompt = getNextQuestion(next, answers);
-    addMessage("system_hint", "Skipped this step. You can edit it in the form panel.");
+    addMessage("system_hint", "No problem — you can fill this in later from your dashboard.");
     addMessage("bot_question", prompt);
     await speakPrompt(prompt);
   };
@@ -311,7 +331,7 @@ export default function ConversationRegistrationShell({
   );
 
   return (
-    <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold text-gray-900 text-lg">Voice Assistant</h2>
@@ -319,6 +339,10 @@ export default function ConversationRegistrationShell({
         </div>
         <span className="badge bg-blue-100 text-blue-700">Current: {pointer.stepId.replaceAll("_", " ")}</span>
       </div>
+
+      <ProgressStepper currentStepId={pointer.stepId} />
+
+      {celebrationText && <CompletionCelebration text={celebrationText} />}
 
       <VoiceAgentControls
         running={running}
@@ -328,6 +352,8 @@ export default function ConversationRegistrationShell({
         onGoBack={onGoBack}
         onEditLast={onEditLast}
       />
+
+      <AIOrb state={orbState} />
 
       <ConversationTranscript messages={messages} />
 
@@ -414,6 +440,6 @@ export default function ConversationRegistrationShell({
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }

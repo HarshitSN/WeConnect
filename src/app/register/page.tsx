@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ClipboardList, CreditCard, CheckCircle } from "lucide-react";
 import ConversationRegistrationShell from "@/components/register/ConversationRegistrationShell";
 import LiveFormMirror from "@/components/register/LiveFormMirror";
+import EndScreenSummary from "@/components/register/EndScreenSummary";
 import { initialPointer } from "@/lib/voice-agent/engine";
 import { CERT_PRICING, MOCK_ASSESSORS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -98,10 +99,16 @@ export default function RegisterPage() {
   const [paid, setPaid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentPointer, setCurrentPointer] = useState<ConversationPointer>(initialPointer());
+  const [voiceFlowDone, setVoiceFlowDone] = useState(false);
 
   useEffect(() => {
     setPaid(false);
   }, [answers.cert_type, assessorId]);
+
+  // Track when voice flow reaches "done"
+  useEffect(() => {
+    if (currentPointer.stepId === "done") setVoiceFlowDone(true);
+  }, [currentPointer.stepId]);
 
   const isUS = answers.country.toLowerCase().includes("united states") || answers.country.toLowerCase() === "us" || answers.country.toLowerCase() === "usa";
 
@@ -128,7 +135,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-hero-gradient">
       <div className="max-w-7xl mx-auto px-6 pt-6 pb-16">
         <button onClick={() => router.push("/dashboard")} className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-6">
           ← Back to Dashboard
@@ -144,14 +151,23 @@ export default function RegisterPage() {
           </div>
         </div>
 
+        {/* End screen celebration when voice flow is done */}
+        {voiceFlowDone && (
+          <div className="mb-6">
+            <EndScreenSummary answers={answers} onSubmit={handleSubmit} />
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-6">
-          <ConversationRegistrationShell
-            answers={answers}
-            setAnswers={setAnswers}
-            assessorId={assessorId}
-            setAssessorId={setAssessorId}
-            onPointerChange={setCurrentPointer}
-          />
+          <div className="glass-card p-5 space-y-4">
+            <ConversationRegistrationShell
+              answers={answers}
+              setAnswers={setAnswers}
+              assessorId={assessorId}
+              setAssessorId={setAssessorId}
+              onPointerChange={setCurrentPointer}
+            />
+          </div>
 
           <LiveFormMirror
             answers={answers}
@@ -162,7 +178,7 @@ export default function RegisterPage() {
           />
         </div>
 
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-6 space-y-4">
+        <section className="glass-card p-6 mt-6 space-y-4">
           <h2 className="font-semibold text-gray-900 text-lg">Payment</h2>
           {!answers.cert_type && (
             <p className="text-sm text-gray-500">Choose a certification path first (voice or manual panel) to continue payment.</p>

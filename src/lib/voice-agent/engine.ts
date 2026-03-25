@@ -23,51 +23,86 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
   const ownerIndex = pointer.ownerIndex ?? 0;
   switch (pointer.stepId) {
     case "business_name":
-      return "What is your registered business name?";
+      return "Let's get started! What's your registered business name?";
     case "women_owned":
-      return "Is your business at least 51 percent owned by women?";
+      return "Great — is your business at least 51 percent owned by women?";
     case "country":
       return "Which country is your business based in?";
     case "us_citizen":
-      return "Are you a US citizen or green card holder?";
+      return "Quick question — are you a US citizen or green card holder?";
     case "visa_type":
-      return "What is your visa type? For example H-1B, L-1, O-1, E-2, TN, F-1 OPT, or other.";
+      return "Got it. What's your visa type? For example H-1B, L-1, O-1, E-2, TN, F-1 OPT, or other.";
     case "webank_certified":
       return "Are you certified by WEBank?";
     case "naics_codes":
-      return "Tell me your NAICS industry code or industry name. You can give multiple.";
+      return "Now let's talk industry! Tell me your NAICS industry code or name. You can give multiple.";
     case "unspsc_codes":
-      return "Tell me your UNSPSC category code or category name. You can give multiple.";
+      return "What about UNSPSC categories? Tell me the code or name — multiple are fine.";
     case "designations":
-      return "Any business designations like Small Business, Women Led, Minority Owned, Veteran Owned, or say none.";
+      return "Any business designations? Like Small Business, Women Led, Minority Owned, Veteran Owned — or just say none.";
     case "owner_name":
-      return `Owner ${ownerIndex + 1}: What is the full name?`;
+      return `Let's set up owner ${ownerIndex + 1}. What's their full name?`;
     case "owner_gender":
-      return `Owner ${ownerIndex + 1}: What is the gender? female, male, non-binary, or other.`;
+      return `And owner ${ownerIndex + 1}'s gender? Female, male, non-binary, or other.`;
     case "owner_percent":
-      return `Owner ${ownerIndex + 1}: What is the ownership percentage? Current total is ${total} percent.`;
+      return `What percentage does owner ${ownerIndex + 1} hold? Current total is ${total} percent.`;
     case "owner_add_more":
       return total < 100
-        ? `Current ownership total is ${total} percent. Do you want to add another owner?`
-        : "Ownership total is 100 percent. Should we continue to the next section?";
+        ? `We're at ${total} percent so far. Want to add another owner?`
+        : "Ownership adds up to 100 percent — perfect! Ready to move on?";
     case "num_employees":
-      return "What is your number of employees range? Options are 1 to 10, 11 to 50, 51 to 200, 201 to 500, 501 to 1000, or 1000 plus.";
+      return "Almost there! How many employees? Options: 1-10, 11-50, 51-200, 201-500, 501-1000, or 1000 plus.";
     case "revenue_range":
-      return "What is your annual revenue range?";
+      return "What's your annual revenue range?";
     case "additional_certs":
-      return "Do you have additional certifications? Say them, or say none.";
+      return "Do you hold any additional certifications? Say them, or just say none.";
     case "business_description":
-      return "Please describe your products or services in at least thirty characters.";
+      return "Tell me about your products or services — at least a sentence or two so we capture the essence.";
     case "cert_type":
-      return "Choose certification path: self certification or digital certification.";
+      return "Last couple of steps! Which certification path would you like — self certification or digital certification?";
     case "assessor": {
       const names = MOCK_ASSESSORS.map((a) => a.name).join(", ");
-      return `You can select an assessor: ${names}. Say skip if you do not want one.`;
+      return `Would you like to pick an assessor? Your options are: ${names}. Or say skip.`;
     }
     case "done":
-      return "Great, voice registration is complete. Please review and finish payment.";
+      return "You're all done! 🎉 Review the form below, finish payment, and hit submit.";
     default:
-      return "Let's continue.";
+      return "Let's keep going!";
+  }
+}
+
+export const SECTION_NAMES = ["Business", "Location", "Industry", "Ownership", "Profile", "Certification"] as const;
+
+export function getSectionIndex(stepId: ConversationStepId): number {
+  switch (stepId) {
+    case "business_name":
+    case "women_owned":
+      return 0;
+    case "country":
+    case "us_citizen":
+    case "visa_type":
+    case "webank_certified":
+      return 1;
+    case "naics_codes":
+    case "unspsc_codes":
+    case "designations":
+      return 2;
+    case "owner_name":
+    case "owner_gender":
+    case "owner_percent":
+    case "owner_add_more":
+      return 3;
+    case "num_employees":
+    case "revenue_range":
+    case "additional_certs":
+    case "business_description":
+      return 4;
+    case "cert_type":
+    case "assessor":
+    case "done":
+      return 5;
+    default:
+      return 0;
   }
 }
 
@@ -124,7 +159,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.95,
         updates: { business_name: businessName },
-        confirmation: `Saved business name as ${businessName}.`,
+        confirmation: `Got it — "${businessName}"! Let's keep going.`,
         next: pointer("women_owned"),
       };
     }
@@ -137,7 +172,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.92,
         updates: { women_owned: parsed },
-        confirmation: parsed ? "Marked as women-owned." : "Marked as not women-owned.",
+        confirmation: parsed ? "Great, noted as women-owned!" : "Understood, noted.",
         next: pointer("country"),
       };
     }
@@ -148,7 +183,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         updates: { country },
-        confirmation: `Saved country as ${country}.`,
+        confirmation: `Perfect — ${country}!`,
         next: nextAfterCountry(merged),
       };
     }
@@ -161,7 +196,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         updates: { us_citizen: parsed },
-        confirmation: parsed ? "Marked as US citizen/green card holder." : "Marked as non-US citizen/green card holder.",
+        confirmation: parsed ? "Got it — US citizen or green card holder!" : "Noted. Let's grab your visa info next.",
         next: parsed ? pointer("webank_certified") : pointer("visa_type"),
       };
     }
@@ -174,7 +209,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.86,
         updates: { visa_type: visa },
-        confirmation: `Saved visa type as ${visa}.`,
+        confirmation: `${visa} — noted!`,
         next: pointer("webank_certified"),
       };
     }
@@ -187,7 +222,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         updates: { webank_certified: parsed },
-        confirmation: parsed ? "WEBank certified marked yes." : "WEBank certified marked no.",
+        confirmation: parsed ? "Awesome, WEBank certified!" : "No WEBank certification noted. Moving on!",
         next: pointer("naics_codes"),
       };
     }
@@ -206,7 +241,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.78,
         updates: { naics_codes: Array.from(new Set([...(state.naics_codes ?? []), ...codes])) },
-        confirmation: `Added NAICS code${codes.length > 1 ? "s" : ""}: ${codes.join(", ")}.`,
+        confirmation: `Nice — added NAICS ${codes.join(", ")}!`,
         next: pointer("unspsc_codes"),
       };
     }
@@ -225,7 +260,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.78,
         updates: { unspsc_codes: Array.from(new Set([...(state.unspsc_codes ?? []), ...codes])) },
-        confirmation: `Added UNSPSC code${codes.length > 1 ? "s" : ""}: ${codes.join(", ")}.`,
+        confirmation: `Added UNSPSC ${codes.join(", ")} — looking good!`,
         next: pointer("designations"),
       };
     }
@@ -253,7 +288,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.82,
         updates: { designations: Array.from(new Set([...(state.designations ?? []), ...des])) },
-        confirmation: `Saved designations: ${des.join(", ")}.`,
+        confirmation: `Great choices — ${des.join(", ")}!`,
         next: pointer("owner_name", 0),
       };
     }
@@ -268,7 +303,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         ownershipUpdate: entries,
-        confirmation: `Saved owner ${ownerIndex + 1} name as ${ownerName}.`,
+        confirmation: `Got it — ${ownerName}!`,
         next: pointer("owner_gender", ownerIndex),
       };
     }
@@ -283,7 +318,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.86,
         ownershipUpdate: entries,
-        confirmation: `Saved owner ${ownerIndex + 1} gender as ${gender}.`,
+        confirmation: `Noted — ${gender}.`,
         next: pointer("owner_percent", ownerIndex),
       };
     }
@@ -309,7 +344,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.88,
         ownershipUpdate: entries,
-        confirmation: `Saved owner ${ownerIndex + 1} percentage as ${percent} percent.`,
+        confirmation: `${percent}% — perfect!`,
         next: pointer("owner_add_more", ownerIndex),
       };
     }
@@ -361,7 +396,7 @@ export function parseStepAnswer(
       return {
         ok: true,
         confidence: 0.92,
-        confirmation: "Ownership section completed.",
+        confirmation: "Ownership section done — great work!",
         next: pointer("num_employees"),
       };
     }
@@ -374,7 +409,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.85,
         updates: { num_employees: range },
-        confirmation: `Saved employee range as ${range}.`,
+        confirmation: `${range} employees — got it!`,
         next: pointer("revenue_range"),
       };
     }
@@ -387,7 +422,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.85,
         updates: { revenue_range: range },
-        confirmation: `Saved revenue range as ${range}.`,
+        confirmation: `${range} — noted!`,
         next: pointer("additional_certs"),
       };
     }
@@ -398,7 +433,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         updates: { additional_certs: value },
-        confirmation: value ? "Saved additional certifications." : "No additional certifications noted.",
+        confirmation: value ? "Great, saved your certifications!" : "No extras — that's totally fine!",
         next: pointer("business_description"),
       };
     }
@@ -416,7 +451,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.85,
         updates: { business_description: safeAnswer },
-        confirmation: "Business description saved.",
+        confirmation: "Wonderful description — saved!",
         next: pointer("cert_type"),
       };
     }
@@ -429,7 +464,7 @@ export function parseStepAnswer(
         ok: true,
         confidence: 0.9,
         updates: { cert_type: cert },
-        confirmation: `Selected ${cert === "self" ? "Self" : "Digital"} Certification.`,
+        confirmation: `${cert === "self" ? "Self" : "Digital"} Certification — great choice!`,
         next: pointer("assessor"),
       };
     }
