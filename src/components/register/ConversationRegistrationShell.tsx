@@ -378,7 +378,7 @@ export default function ConversationRegistrationShell({
         <p className="text-xs text-gray-600">
           Voice status:{" "}
           <span className="font-semibold text-gray-800">
-            {!running ? "Paused" : busy || isAssistantSpeaking ? "Assistant speaking..." : isListening ? "Listening" : "Connecting mic..."}
+            {!running ? "Paused" : busy || isAssistantSpeaking ? "Assistant speaking..." : isListening ? "Recording..." : "Connecting mic..."}
           </span>
         </p>
       </div>

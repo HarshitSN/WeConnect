@@ -39,7 +39,7 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
     case "unspsc_codes":
       return "Tell me your UNSPSC category code or category name. You can give multiple.";
     case "designations":
-      return "Any business designations like Small Business, Women-Led, Minority-Owned, Veteran-Owned, or say none.";
+      return "Any business designations like Small Business, Women Led, Minority Owned, Veteran Owned, or say none.";
     case "owner_name":
       return `Owner ${ownerIndex + 1}: What is the full name?`;
     case "owner_gender":
@@ -51,7 +51,7 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
         ? `Current ownership total is ${total} percent. Do you want to add another owner?`
         : "Ownership total is 100 percent. Should we continue to the next section?";
     case "num_employees":
-      return "What is your number of employees range? Options are 1-10, 11-50, 51-200, 201-500, 501-1000, 1000+.";
+      return "What is your number of employees range? Options are 1 to 10, 11 to 50, 51 to 200, 201 to 500, 501 to 1000, or 1000 plus.";
     case "revenue_range":
       return "What is your annual revenue range?";
     case "additional_certs":

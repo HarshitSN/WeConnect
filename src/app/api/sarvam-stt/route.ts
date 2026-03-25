@@ -21,11 +21,16 @@ export async function POST(request: Request) {
       )
     }
 
+    // Sarvam rejects MIME types like "audio/webm;codecs=opus" — strip codec params
+    const cleanType = (audio.type || 'audio/webm').split(';')[0].trim() || 'audio/webm'
+    const cleanBlob = new Blob([await audio.arrayBuffer()], { type: cleanType })
+
     const upstreamFormData = new FormData()
-    upstreamFormData.append('file', audio, 'recording.webm')
+    upstreamFormData.append('file', cleanBlob, 'recording.webm')
     upstreamFormData.append('model', 'saaras:v3')
     upstreamFormData.append('mode', 'transcribe')
     upstreamFormData.append('language_code', languageCode)
+    upstreamFormData.append('with_timestamps', 'false')
 
     const response = await fetch('https://api.sarvam.ai/speech-to-text', {
       method: 'POST',
@@ -37,6 +42,7 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errorText = await response.text()
+      console.warn('[sarvam-stt] upstream error:', response.status, errorText)
       return NextResponse.json(
         {
           ok: false,
@@ -51,9 +57,11 @@ export async function POST(request: Request) {
     }
 
     const data = await response.json()
+    const transcript = (data.transcript ?? '').trim()
+
     return NextResponse.json({
       ok: true,
-      transcript: data.transcript || '',
+      transcript,
       languageCode: data.language_code || languageCode,
       timestamp: new Date().toISOString(),
     })
