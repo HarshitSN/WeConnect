@@ -109,11 +109,28 @@ export function normalizeOwnerName(input: string): string {
 }
 
 export function normalizeCountry(input: string): string {
-  const t = clean(input);
+  // Strip common leading phrases like "It's based in", "We are from", etc.
+  const stripped = stripLeadingPhrases(input, [
+    "it\\s*'?s\\s+based\\s+in",
+    "it\\s+is\\s+based\\s+in",
+    "we\\s+are\\s+based\\s+in",
+    "we\\s*'?re\\s+based\\s+in",
+    "based\\s+in",
+    "we\\s+are\\s+from",
+    "we\\s*'?re\\s+from",
+    "i\\s+am\\s+from",
+    "i\\s*'?m\\s+from",
+    "from",
+    "it\\s*'?s",
+    "it\\s+is",
+  ]);
+  const cleaned = cleanupEntityValue(stripped);
+  const value = cleaned || input.trim();
+  const t = clean(value);
   if (["us", "usa", "u s", "u s a", "united states", "united states of america", "america"].includes(t)) {
     return "United States";
   }
-  return input.trim().replace(/\b\w/g, (c) => c.toUpperCase());
+  return toTitleCase(value);
 }
 
 export function isUSCountry(value: string): boolean {

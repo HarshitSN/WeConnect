@@ -53,7 +53,7 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
     case "num_employees":
       return "Almost there! How many employees? Options: 1-10, 11-50, 51-200, 201-500, 501-1000, or 1000 plus.";
     case "revenue_range":
-      return "What's your annual revenue range?";
+      return "What's your annual revenue range? Your options are: Under 100K, 100K to 500K, 500K to 1 million, 1 to 5 million, 5 to 25 million, or 25 million plus.";
     case "additional_certs":
       return "Do you hold any additional certifications? Say them, or just say none.";
     case "business_description":
@@ -155,11 +155,12 @@ export function parseStepAnswer(
       if (businessName.length < 2) {
         return { ok: false, confidence: 0.2, confirmation: "Business name seems too short.", clarification: "Please say your full registered business name.", next: pointer("business_name") };
       }
+      const displayName = businessName.replace(/\.$/,"");
       return {
         ok: true,
         confidence: 0.95,
         updates: { business_name: businessName },
-        confirmation: `Got it — "${businessName}"! Let's keep going.`,
+        confirmation: `Got it — ${displayName}! Let's keep going.`,
         next: pointer("women_owned"),
       };
     }
@@ -416,7 +417,7 @@ export function parseStepAnswer(
     case "revenue_range": {
       const range = parseRevenueRange(safeAnswer);
       if (!range) {
-        return { ok: false, confidence: 0.35, confirmation: "I could not map revenue range.", clarification: "Please say a revenue range from the dropdown options.", next: pointer("revenue_range") };
+        return { ok: false, confidence: 0.35, confirmation: "I didn't catch a matching range.", clarification: "Try saying one of: Under 100K, 100K to 500K, 500K to 1 million, 1 to 5 million, 5 to 25 million, or 25 million plus.", next: pointer("revenue_range") };
       }
       return {
         ok: true,
