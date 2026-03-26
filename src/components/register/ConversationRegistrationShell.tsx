@@ -18,12 +18,13 @@ interface HistoryEntry {
   assessorId: string;
 }
 
-function mkMessage(type: ConversationMessage["type"], text: string): ConversationMessage {
+function mkMessage(type: ConversationMessage["type"], text: string, pointer?: ConversationPointer): ConversationMessage {
   return {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type,
     text,
     timestamp: new Date().toISOString(),
+    pointer,
   };
 }
 
@@ -47,15 +48,11 @@ function nextBySkip(pointer: ConversationPointer, state: RegistrationState): Con
     case "unspsc_codes":
       return { stepId: "designations" };
     case "designations":
-      return { stepId: "owner_name", ownerIndex: 0 };
-    case "owner_name":
-      return { stepId: "owner_gender", ownerIndex: pointer.ownerIndex ?? 0 };
-    case "owner_gender":
-      return { stepId: "owner_percent", ownerIndex: pointer.ownerIndex ?? 0 };
-    case "owner_percent":
+      return { stepId: "owner_details", ownerIndex: 0 };
+    case "owner_details":
       return { stepId: "owner_add_more", ownerIndex: pointer.ownerIndex ?? 0 };
     case "owner_add_more":
-      return total >= 100 ? { stepId: "num_employees" } : { stepId: "owner_name", ownerIndex: (pointer.ownerIndex ?? 0) + 1 };
+      return total >= 100 ? { stepId: "num_employees" } : { stepId: "owner_details", ownerIndex: (pointer.ownerIndex ?? 0) + 1 };
     case "num_employees":
       return { stepId: "revenue_range" };
     case "revenue_range":
@@ -148,8 +145,8 @@ export default function ConversationRegistrationShell({
     prevSectionRef.current = newSection;
   }, [pointer.stepId, running]);
 
-  const addMessage = useCallback((type: ConversationMessage["type"], text: string) => {
-    setMessages((prev) => [...prev, mkMessage(type, text)]);
+  const addMessage = useCallback((type: ConversationMessage["type"], text: string, msgPointer?: ConversationPointer) => {
+    setMessages((prev) => [...prev, mkMessage(type, text, msgPointer)]);
   }, []);
 
   useEffect(() => {
@@ -176,9 +173,9 @@ export default function ConversationRegistrationShell({
   }, []);
 
   const askCurrent = useCallback(async () => {
-    addMessage("bot_question", currentPrompt);
+    addMessage("bot_question", currentPrompt, pointer);
     await speakPrompt(currentPrompt);
-  }, [addMessage, currentPrompt, speakPrompt]);
+  }, [addMessage, currentPrompt, speakPrompt, pointer]);
 
   useEffect(() => {
     onPointerChange?.(pointer);
@@ -242,7 +239,7 @@ export default function ConversationRegistrationShell({
         }
 
         const nextPrompt = data.prompt || getNextQuestion(result.next, answers);
-        addMessage("bot_question", nextPrompt);
+        addMessage("bot_question", nextPrompt, result.next);
         await speakPrompt(nextPrompt);
       } catch {
         addMessage("system_hint", "Network issue while processing answer. Please retry.");
@@ -276,7 +273,7 @@ export default function ConversationRegistrationShell({
 
   const onRepeat = async () => {
     if (!running) return;
-    addMessage("bot_question", currentPrompt);
+    addMessage("bot_question", currentPrompt, pointer);
     await speakPrompt(currentPrompt);
   };
 
@@ -286,7 +283,7 @@ export default function ConversationRegistrationShell({
     setPointer(next);
     const prompt = getNextQuestion(next, answers);
     addMessage("system_hint", "No problem — you can fill this in later from your dashboard.");
-    addMessage("bot_question", prompt);
+    addMessage("bot_question", prompt, next);
     await speakPrompt(prompt);
   };
 
@@ -299,7 +296,7 @@ export default function ConversationRegistrationShell({
     setPointer(last.pointer);
     const prompt = getNextQuestion(last.pointer, last.answers);
     addMessage("system_hint", "Moved back to previous question.");
-    addMessage("bot_question", prompt);
+    addMessage("bot_question", prompt, last.pointer);
     await speakPrompt(prompt);
   };
 
@@ -355,7 +352,13 @@ export default function ConversationRegistrationShell({
 
       <AIOrb state={orbState} />
 
-      <ConversationTranscript messages={messages} />
+      <ConversationTranscript
+        messages={messages}
+        answers={answers}
+        setAnswers={setAnswers}
+        assessorId={assessorId}
+        setAssessorId={setAssessorId}
+      />
 
       <div className="space-y-2">
         <label className="label">Answer by text</label>

@@ -90,6 +90,7 @@ export interface ConversationMessage {
   type: ConversationMessageType;
   text: string;
   timestamp: string;
+  pointer?: ConversationPointer;
 }
 
 export type ConversationStepId =
@@ -102,9 +103,7 @@ export type ConversationStepId =
   | "naics_codes"
   | "unspsc_codes"
   | "designations"
-  | "owner_name"
-  | "owner_gender"
-  | "owner_percent"
+  | "owner_details"
   | "owner_add_more"
   | "num_employees"
   | "revenue_range"

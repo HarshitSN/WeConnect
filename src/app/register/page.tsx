@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ClipboardList, CreditCard, CheckCircle } from "lucide-react";
 import ConversationRegistrationShell from "@/components/register/ConversationRegistrationShell";
-import LiveFormMirror from "@/components/register/LiveFormMirror";
 import EndScreenSummary from "@/components/register/EndScreenSummary";
 import { initialPointer } from "@/lib/voice-agent/engine";
 import { CERT_PRICING, MOCK_ASSESSORS } from "@/lib/constants";
@@ -158,7 +157,7 @@ export default function RegisterPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-2 gap-6">
+        <div className="max-w-3xl mx-auto">
           <div className="glass-card p-5 space-y-4">
             <ConversationRegistrationShell
               answers={answers}
@@ -168,14 +167,6 @@ export default function RegisterPage() {
               onPointerChange={setCurrentPointer}
             />
           </div>
-
-          <LiveFormMirror
-            answers={answers}
-            setAnswers={setAnswers}
-            assessorId={assessorId}
-            setAssessorId={setAssessorId}
-            currentPointer={currentPointer}
-          />
         </div>
 
         <section className="glass-card p-6 mt-6 space-y-4">

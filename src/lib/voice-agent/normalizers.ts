@@ -95,17 +95,29 @@ export function normalizeBusinessName(input: string): string {
 }
 
 export function normalizeOwnerName(input: string): string {
-  const stripped = stripLeadingPhrases(input, [
+  let text = input.replace(/\b(?:gender|ownership|holds|owns|percent|percentage|%|male|female|man|woman|non\s*binary).*$/i, "");
+  
+  const stripped = stripLeadingPhrases(text, [
     "my\\s+name\\s+is",
+    "full\\s+name\\s+is",
+    "his\\s+name\\s+is",
+    "her\\s+name\\s+is",
+    "their\\s+name\\s+is",
+    "owner'?s\\s+name\\s+is",
     "owner\\s+name\\s+is",
     "the\\s+name\\s+is",
     "name\\s+is",
     "this\\s+is",
     "i\\s+am",
     "i\\s*'?m",
+    "he\\s+is",
+    "she\\s+is",
+    "they\\s+are",
   ]);
-  const cleaned = cleanupEntityValue(stripped);
-  return toTitleCase(cleaned || input.trim());
+  
+  let cleaned = cleanupEntityValue(stripped).replace(/^(?:and|also)\s+|\s+(?:and|also)$/ig, "").trim();
+  cleaned = cleaned.replace(/^,+|,+$/g, "").trim();
+  return toTitleCase(cleaned || text.trim() || input.trim());
 }
 
 export function normalizeCountry(input: string): string {
@@ -138,11 +150,42 @@ export function isUSCountry(value: string): boolean {
   return t === "us" || t === "usa" || t === "united states" || t === "united states of america";
 }
 
+function levenshtein(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+}
+
+function wordMatchScore(inputWords: string[], targetWord: string) {
+  let maxScore = 0;
+  for (const iw of inputWords) {
+    if (iw === targetWord) return 1;
+    const dist = levenshtein(iw, targetWord);
+    const score = 1 - dist / Math.max(iw.length, targetWord.length);
+    if (score > maxScore) maxScore = score;
+  }
+  return maxScore;
+}
+
 function findCodesByLabelOrCode(
   input: string,
   options: Array<{ code: string; label: string }>,
 ): string[] {
   const t = clean(input);
+  const inputWords = t.split(/\s+/);
   const explicitCodes: string[] = t.match(/\b\d{2}(?:\s*\d{2})?\b|\b\d{8}\b/g) ?? [];
   const codeHits = options
     .filter((opt) => explicitCodes.includes(clean(opt.code)))
@@ -151,7 +194,17 @@ function findCodesByLabelOrCode(
   const labelHits = options
     .filter((opt) => {
       const label = clean(opt.label);
-      return t.includes(label) || label.split(" ").every((piece) => piece.length > 2 && t.includes(piece));
+      if (t.includes(label)) return true;
+      
+      const labelWords = label.split(/\s+/).filter((w: string) => w.length > 3);
+      if (labelWords.length === 0) return false;
+      
+      let totalScore = 0;
+      for (const lw of labelWords) {
+        totalScore += wordMatchScore(inputWords, lw);
+      }
+      const avgScore = totalScore / labelWords.length;
+      return avgScore > 0.65;
     })
     .map((opt) => opt.code);
 
@@ -229,12 +282,67 @@ export function parseGender(input: string): "female" | "male" | "non_binary" | "
   return null;
 }
 
+const NUMBER_WORDS: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100
+};
+
 export function parsePercent(input: string): number | null {
-  const match = input.match(/\d{1,3}(?:\.\d+)?/);
-  if (!match) return null;
-  const value = Number(match[0]);
-  if (Number.isNaN(value) || value <= 0 || value > 100) return null;
-  return value;
+  const t = clean(input);
+  const match = t.match(/\d{1,3}(?:\.\d+)?/);
+  if (match) {
+    const value = Number(match[0]);
+    if (!Number.isNaN(value) && value > 0 && value <= 100) return value;
+  }
+
+  const words = t.split(/\s+/);
+  let accumulated = 0;
+  let current = 0;
+  let foundNumber = false;
+
+  for (const word of words) {
+    if (NUMBER_WORDS[word] !== undefined) {
+      foundNumber = true;
+      const num = NUMBER_WORDS[word];
+      if (num === 100) {
+        if (current === 0) current = 1;
+        current *= 100;
+        accumulated += current;
+        current = 0;
+      } else {
+        current += num;
+      }
+    }
+  }
+
+  const finalVal = accumulated + current;
+  if (foundNumber && finalVal > 0 && finalVal <= 100) return finalVal;
+  return null;
+}
+
+export function parseOwnerDetails(input: string): { name: string; gender: "female" | "male" | "non_binary" | "other" | null; percent: number | null } {
+  const gender = parseGender(input);
+  const percent = parsePercent(input);
+  
+  let remainder = input;
+  
+  if (gender) {
+    const gword = gender === "non_binary" ? "non binary" : gender;
+    remainder = remainder.replace(new RegExp(`\\b${gword}\\b`, "ig"), "");
+    remainder = remainder.replace(/\b(mail|femail|man|woman|men|women|male|female)\b/ig, "");
+  }
+  
+  if (percent !== null) {
+    remainder = remainder.replace(new RegExp(`\\b${percent}\\b`, "ig"), "");
+    Object.keys(NUMBER_WORDS).forEach(w => {
+      remainder = remainder.replace(new RegExp(`\\b${w}\\b`, "ig"), "");
+    });
+    remainder = remainder.replace(/\b(percent|percentage|%)\b/ig, "");
+  }
+
+  const name = normalizeOwnerName(remainder.trim());
+  return { name, gender, percent };
 }
 
 /**

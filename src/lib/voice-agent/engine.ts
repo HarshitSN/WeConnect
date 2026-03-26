@@ -11,6 +11,7 @@ import {
   parseEmployeeRange,
   parseGender,
   parseNaicsCodes,
+  parseOwnerDetails,
   parsePercent,
   parseRevenueRange,
   parseUnspscCodes,
@@ -40,12 +41,8 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
       return "What about UNSPSC categories? Tell me the code or name — multiple are fine.";
     case "designations":
       return "Any business designations? Like Small Business, Women Led, Minority Owned, Veteran Owned — or just say none.";
-    case "owner_name":
-      return `Let's set up owner ${ownerIndex + 1}. What's their full name?`;
-    case "owner_gender":
-      return `And owner ${ownerIndex + 1}'s gender? Female, male, non-binary, or other.`;
-    case "owner_percent":
-      return `What percentage does owner ${ownerIndex + 1} hold? Current total is ${total} percent.`;
+    case "owner_details":
+      return `Let's set up owner ${ownerIndex + 1}. What is their full name, gender, and ownership percentage?`;
     case "owner_add_more":
       return total < 100
         ? `We're at ${total} percent so far. Want to add another owner?`
@@ -87,9 +84,7 @@ export function getSectionIndex(stepId: ConversationStepId): number {
     case "unspsc_codes":
     case "designations":
       return 2;
-    case "owner_name":
-    case "owner_gender":
-    case "owner_percent":
+    case "owner_details":
     case "owner_add_more":
       return 3;
     case "num_employees":
@@ -272,7 +267,7 @@ export function parseStepAnswer(
           confidence: 0.95,
           updates: { designations: [] },
           confirmation: "No designations selected.",
-          next: pointer("owner_name", 0),
+          next: pointer("owner_details", 0),
         };
       }
       const des = parseDesignations(safeAnswer);
@@ -290,62 +285,59 @@ export function parseStepAnswer(
         confidence: 0.82,
         updates: { designations: Array.from(new Set([...(state.designations ?? []), ...des])) },
         confirmation: `Great choices — ${des.join(", ")}!`,
-        next: pointer("owner_name", 0),
+        next: pointer("owner_details", 0),
       };
     }
-    case "owner_name": {
-      const ownerName = normalizeOwnerName(safeAnswer);
-      if (ownerName.length < 2) {
-        return { ok: false, confidence: 0.3, confirmation: "Owner name seems too short.", clarification: `Please repeat owner ${ownerIndex + 1} full name.`, next: pointer("owner_name", ownerIndex) };
-      }
+    case "owner_details": {
+      const details = parseOwnerDetails(safeAnswer);
       const entries = ensureOwner(state.ownership_structure, ownerIndex);
-      entries[ownerIndex] = { ...entries[ownerIndex], name: ownerName };
-      return {
-        ok: true,
-        confidence: 0.9,
-        ownershipUpdate: entries,
-        confirmation: `Got it — ${ownerName}!`,
-        next: pointer("owner_gender", ownerIndex),
-      };
-    }
-    case "owner_gender": {
-      const gender = parseGender(safeAnswer);
-      if (!gender) {
-        return { ok: false, confidence: 0.35, confirmation: "I could not map gender.", clarification: "Please say female, male, non-binary, or other.", next: pointer("owner_gender", ownerIndex) };
+      
+      let clarification = "";
+      if (details.name.length < 2 && !entries[ownerIndex].name) {
+        clarification += "Please state their full name. ";
+      } else if (details.name.length >= 2) {
+        entries[ownerIndex].name = details.name;
       }
-      const entries = ensureOwner(state.ownership_structure, ownerIndex);
-      entries[ownerIndex] = { ...entries[ownerIndex], gender };
-      return {
-        ok: true,
-        confidence: 0.86,
-        ownershipUpdate: entries,
-        confirmation: `Noted — ${gender}.`,
-        next: pointer("owner_percent", ownerIndex),
-      };
-    }
-    case "owner_percent": {
-      const percent = parsePercent(safeAnswer);
-      if (!percent) {
-        return { ok: false, confidence: 0.35, confirmation: "I could not map ownership percentage.", clarification: "Please say a number between 1 and 100.", next: pointer("owner_percent", ownerIndex) };
+
+      if (!details.gender && !entries[ownerIndex].gender) {
+        clarification += "Please include their gender (female, male, non-binary, or other). ";
+      } else if (details.gender) {
+        entries[ownerIndex].gender = details.gender;
       }
-      const entries = ensureOwner(state.ownership_structure, ownerIndex);
-      entries[ownerIndex] = { ...entries[ownerIndex], percent };
+
+      if (!details.percent && !entries[ownerIndex].percent) {
+        clarification += "Please include their ownership percentage. ";
+      } else if (details.percent) {
+        entries[ownerIndex].percent = details.percent;
+      }
+      
       const total = ownerTotal(entries);
+      if (clarification) {
+        return {
+          ok: false,
+          confidence: 0.5,
+          ownershipUpdate: entries,
+          confirmation: "I missed some details.",
+          clarification: clarification.trim(),
+          next: pointer("owner_details", ownerIndex),
+        };
+      }
+      
       if (total > 100) {
         return {
           ok: false,
           confidence: 0.6,
           ownershipUpdate: entries,
           confirmation: `Ownership total is ${total} percent which is over 100.`,
-          clarification: "Please adjust this owner percentage so total is 100.",
-          next: pointer("owner_percent", ownerIndex),
+          clarification: "Please adjust their percentage so total is 100.",
+          next: pointer("owner_details", ownerIndex),
         };
       }
       return {
         ok: true,
-        confidence: 0.88,
+        confidence: 0.9,
         ownershipUpdate: entries,
-        confirmation: `${percent}% — perfect!`,
+        confirmation: `Got it! ${entries[ownerIndex].name}, ${entries[ownerIndex].gender}, ${entries[ownerIndex].percent}%.`,
         next: pointer("owner_add_more", ownerIndex),
       };
     }
@@ -380,7 +372,7 @@ export function parseStepAnswer(
           confidence: 0.9,
           ownershipUpdate: entries,
           confirmation: `Adding owner ${nextIndex + 1}.`,
-          next: pointer("owner_name", nextIndex),
+          next: pointer("owner_details", nextIndex),
         };
       }
 
