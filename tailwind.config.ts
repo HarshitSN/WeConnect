@@ -63,6 +63,19 @@ const config: Config = {
           "60%": { transform: "scale(1.2) rotate(0deg)", opacity: "1" },
           "100%": { transform: "scale(1) rotate(0deg)", opacity: "1" },
         },
+        calmDrift: {
+          "0%, 100%": { transform: "translateY(0px)" },
+          "50%": { transform: "translateY(-4px)" },
+        },
+        softShimmer: {
+          "0%": { backgroundPosition: "-120% 0" },
+          "100%": { backgroundPosition: "120% 0" },
+        },
+        calmRipple: {
+          "0%": { transform: "scale(0.95)", opacity: "0.6" },
+          "70%": { transform: "scale(1.1)", opacity: "0.15" },
+          "100%": { transform: "scale(1.2)", opacity: "0" },
+        },
       },
       animation: {
         "fade-in": "fadeIn 0.4s ease-out",
@@ -77,6 +90,9 @@ const config: Config = {
         "confetti-burst": "confettiBurst 0.6s ease-out forwards",
         "typewriter-cursor": "typewriterCursor 0.8s step-end infinite",
         "celebrate-check": "celebrateCheck 0.5s ease-out forwards",
+        "calm-drift": "calmDrift 3.6s ease-in-out infinite",
+        "soft-shimmer": "softShimmer 2s linear infinite",
+        "calm-ripple": "calmRipple 1.6s ease-out infinite",
       },
     },
   },

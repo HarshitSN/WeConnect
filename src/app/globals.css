@@ -4,6 +4,17 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --motion-duration-fast: 180ms;
+  --motion-duration-base: 320ms;
+  --motion-duration-slow: 520ms;
+  --motion-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-gentle: cubic-bezier(0.16, 1, 0.3, 1);
+  --depth-glow-soft: 0 10px 28px rgba(79, 70, 229, 0.12);
+  --depth-glow-strong: 0 18px 44px rgba(79, 70, 229, 0.2);
+  --surface-gradient-calm: linear-gradient(130deg, rgba(255, 255, 255, 0.88) 0%, rgba(241, 245, 255, 0.82) 100%);
+}
+
 @layer base {
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -90,9 +101,41 @@
   .fill-later-tag {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700;
   }
+
+  .interactive-surface {
+    background: var(--surface-gradient-calm);
+    box-shadow: var(--depth-glow-soft);
+    transition: box-shadow var(--motion-duration-base) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-gentle);
+  }
+
+  .interactive-surface:hover {
+    box-shadow: var(--depth-glow-strong);
+  }
+
+  .interaction-state {
+    @apply rounded-2xl ring-1 ring-inset backdrop-blur-md;
+    transition: all var(--motion-duration-base) var(--motion-ease-standard);
+  }
+
+  .interaction-state-idle { @apply bg-slate-50/70 ring-slate-200; }
+  .interaction-state-listening { @apply bg-emerald-50/80 ring-emerald-200; }
+  .interaction-state-speaking { @apply bg-violet-50/80 ring-violet-200; }
+  .interaction-state-processing { @apply bg-sky-50/80 ring-sky-200; }
+  .interaction-state-success { @apply bg-green-50/80 ring-green-200; }
 }
 
 @keyframes fadeOut {
   0% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

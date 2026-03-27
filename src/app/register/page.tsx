@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ClipboardList, CreditCard, CheckCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import ConversationRegistrationShell from "@/components/register/ConversationRegistrationShell";
 import EndScreenSummary from "@/components/register/EndScreenSummary";
 import { initialPointer } from "@/lib/voice-agent/engine";
 import { CERT_PRICING, MOCK_ASSESSORS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { CertType, ConversationPointer, RegistrationState } from "@/types";
+import { pageEnter, panelLift } from "@/lib/motion";
 
 const EMPTY: RegistrationState = {
   business_name: "", women_owned: null, country: "",
@@ -134,7 +136,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-hero-gradient">
+    <motion.div className="min-h-screen bg-hero-gradient" variants={pageEnter()} initial="hidden" animate="visible">
       <div className="max-w-7xl mx-auto px-6 pt-6 pb-16">
         <button onClick={() => router.push("/dashboard")} className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-6">
           ← Back to Dashboard
@@ -151,14 +153,16 @@ export default function RegisterPage() {
         </div>
 
         {/* End screen celebration when voice flow is done */}
-        {voiceFlowDone && (
-          <div className="mb-6">
-            <EndScreenSummary answers={answers} onSubmit={handleSubmit} />
-          </div>
-        )}
+        <AnimatePresence>
+          {voiceFlowDone && (
+            <motion.div className="mb-6" variants={panelLift} initial="hidden" animate="visible" exit="hidden">
+              <EndScreenSummary answers={answers} onSubmit={handleSubmit} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="max-w-3xl mx-auto">
-          <div className="glass-card p-5 space-y-4">
+          <motion.div className="glass-card p-5 space-y-4 interactive-surface" variants={panelLift} initial="hidden" animate="visible">
             <ConversationRegistrationShell
               answers={answers}
               setAnswers={setAnswers}
@@ -166,10 +170,10 @@ export default function RegisterPage() {
               setAssessorId={setAssessorId}
               onPointerChange={setCurrentPointer}
             />
-          </div>
+          </motion.div>
         </div>
 
-        <section className="glass-card p-6 mt-6 space-y-4">
+        <motion.section className="glass-card p-6 mt-6 space-y-4 interactive-surface" variants={panelLift} initial="hidden" animate="visible">
           <h2 className="font-semibold text-gray-900 text-lg">Payment</h2>
           {!answers.cert_type && (
             <p className="text-sm text-gray-500">Choose a certification path first (voice or manual panel) to continue payment.</p>
@@ -190,7 +194,7 @@ export default function RegisterPage() {
               )}
             </>
           )}
-        </section>
+        </motion.section>
 
         <div className="mt-6 flex justify-end">
           <button
@@ -215,6 +219,6 @@ export default function RegisterPage() {
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

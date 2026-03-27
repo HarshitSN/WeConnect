@@ -5,9 +5,11 @@ import {
   Clock, CheckCircle, Lock, TrendingUp, Globe, Cpu, Network, FileText,
   ArrowRight, Search, Star, Users, Shield, AlertCircle, ExternalLink,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import Navbar from "@/components/layout/Navbar";
 import WelcomeBanner from "@/components/ui/WelcomeBanner";
 import DashboardStepper from "@/components/ui/DashboardStepper";
+import { pageEnter, panelLift, staggerContainer } from "@/lib/motion";
 
 const STEPS_BY_STAGE: Record<number, { id: number; label: string; sublabel: string; status: "completed" | "active" | "locked" }[]> = {
   1: [
@@ -52,6 +54,7 @@ const EXPLORE_LINKS = [
 
 export default function DashboardPage() {
   const [stage, setStage] = useState(1);
+  const prefersReducedMotion = useReducedMotion();
 
   const steps      = STEPS_BY_STAGE[stage];
   const banner     = BANNERS[stage];
@@ -62,7 +65,12 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-surface">
       <Navbar />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <motion.main
+        className="max-w-3xl mx-auto px-6 py-8"
+        variants={pageEnter()}
+        initial="hidden"
+        animate="visible"
+      >
 
         <WelcomeBanner title={banner.title} subtitle={banner.subtitle} />
 
@@ -77,9 +85,13 @@ export default function DashboardPage() {
             <DashboardStepper steps={steps} currentStep={stage} />
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <motion.div className="grid md:grid-cols-2 gap-4" variants={staggerContainer(0.06)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }}>
             {/* Register card */}
-            <div className={`rounded-2xl border-2 p-5 transition-all ${!regDone ? "border-brand-blue/30 bg-blue-50/20" : "border-green-200 bg-green-50/20"}`}>
+            <motion.div
+              variants={panelLift}
+              whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+              className={`rounded-2xl border-2 p-5 transition-all interactive-surface ${!regDone ? "border-brand-blue/30 bg-blue-50/20" : "border-green-200 bg-green-50/20"}`}
+            >
               <div className="flex items-start gap-3 mb-3">
                 {regDone
                   ? <CheckCircle size={17} className="text-green-500 mt-0.5 shrink-0" />
@@ -103,12 +115,16 @@ export default function DashboardPage() {
                   Continue <ArrowRight size={14} />
                 </Link>
               )}
-            </div>
+            </motion.div>
 
             {/* Verify card */}
-            <div className={`rounded-2xl border-2 p-5 transition-all ${
+            <motion.div
+              variants={panelLift}
+              whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+              className={`rounded-2xl border-2 p-5 transition-all interactive-surface ${
               stage === 2 ? "border-brand-blue/30 bg-blue-50/20" :
               verifyDone  ? "border-green-200 bg-green-50/20" : "border-gray-100 bg-white opacity-60"}`}>
+              
               <div className="flex items-start gap-3 mb-3">
                 {verifyDone
                   ? <CheckCircle size={17} className="text-green-500 mt-0.5 shrink-0" />
@@ -129,8 +145,8 @@ export default function DashboardPage() {
                   Start Verification <ArrowRight size={14} />
                 </Link>
               )}
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </section>
 
         {/* Choose Certification */}
@@ -274,7 +290,7 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-      </main>
+      </motion.main>
     </div>
   );
 }

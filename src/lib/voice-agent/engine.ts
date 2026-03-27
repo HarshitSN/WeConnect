@@ -343,7 +343,27 @@ export function parseStepAnswer(
     }
     case "owner_add_more": {
       const total = ownerTotal(state.ownership_structure);
+      const lower = safeAnswer.toLowerCase();
+      const wantsEdit = /\b(edit|change|modify|update|fix|correct)\b/.test(lower);
       const choice = parseYesNo(safeAnswer);
+
+      if (total >= 100) {
+        if (wantsEdit || choice === false || choice === null) {
+          return {
+            ok: false,
+            confidence: 0.8,
+            confirmation: "Ownership is already 100 percent.",
+            clarification: "Say continue/yes to move on, or say edit to modify current owners.",
+            next: pointer("owner_add_more", ownerIndex),
+          };
+        }
+        return {
+          ok: true,
+          confidence: 0.92,
+          confirmation: "Ownership section done — great work!",
+          next: pointer("num_employees"),
+        };
+      }
 
       if (total < 100 && choice === false) {
         return {
@@ -356,15 +376,6 @@ export function parseStepAnswer(
       }
 
       if (choice === true) {
-        if (total >= 100) {
-          return {
-            ok: false,
-            confidence: 0.7,
-            confirmation: "Ownership is already 100 percent.",
-            clarification: "You can continue, or say edit to modify current owners.",
-            next: pointer("owner_add_more", ownerIndex),
-          };
-        }
         const nextIndex = state.ownership_structure.length;
         const entries: OwnershipEntry[] = [...state.ownership_structure, { name: "", gender: "female", percent: 0 }];
         return {
@@ -420,8 +431,8 @@ export function parseStepAnswer(
       };
     }
     case "additional_certs": {
-      const lower = safeAnswer.toLowerCase();
-      const value = ["none", "skip", "no"].includes(lower) ? "" : safeAnswer;
+      const lower = safeAnswer.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+      const value = ["none", "skip", "no", "nine"].includes(lower) ? "" : safeAnswer;
       return {
         ok: true,
         confidence: 0.9,

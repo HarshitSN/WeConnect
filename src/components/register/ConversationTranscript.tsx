@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConversationMessage, RegistrationState } from "@/types";
 import { cn } from "@/lib/utils";
-import TypewriterText, { ThinkingDots } from "@/components/ui/TypewriterText";
+import TypewriterText from "@/components/ui/TypewriterText";
 import { Bot, User } from "lucide-react";
 import InlineFormElement from "./InlineFormElement";
 import { Dispatch, SetStateAction } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { messageReveal } from "@/lib/motion";
 
 export default function ConversationTranscript({
   messages,
@@ -23,6 +25,7 @@ export default function ConversationTranscript({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -50,15 +53,21 @@ export default function ConversationTranscript({
           <p className="text-sm text-gray-400 italic">Start the voice session to begin...</p>
         </div>
       )}
-      {messages.map((message) => {
+      <AnimatePresence initial={false}>
+        {messages.map((message) => {
         const isUser = message.type === "user_answer";
         const isHint = message.type === "system_hint";
         const isBot = message.type === "bot_question" || message.type === "bot_confirm";
         const shouldTypewrite = isBot && message.id === lastBotId && !completedIds.has(message.id);
 
         return (
-          <div
+          <motion.div
             key={message.id}
+            layout={!prefersReducedMotion}
+            variants={messageReveal}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
             className={cn(
               "flex gap-2",
               isUser ? "justify-end animate-slide-in-right" : "justify-start animate-slide-in-left",
@@ -118,9 +127,10 @@ export default function ConversationTranscript({
                 <User size={14} className="text-white" />
               </div>
             )}
-          </div>
+          </motion.div>
         );
       })}
+      </AnimatePresence>
     </div>
   );
 }

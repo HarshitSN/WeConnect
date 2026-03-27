@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { Sparkles, Shield, Globe, ArrowRight, CheckCircle, Cpu, Network, FileText, Settings, Users } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { pageEnter, panelLift, staggerContainer } from "@/lib/motion";
 
 const FEATURES = [
   { icon: Sparkles, bg: "bg-blue-100", color: "text-brand-blue", title: "AI-Guided Process", desc: "Our intelligent assistant guides you through every step, making certification simple and stress-free." },
@@ -35,8 +39,15 @@ const DOC_LINKS = [
 ];
 
 export default function LandingPage() {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <main className="min-h-screen bg-hero-gradient">
+    <motion.main
+      className="min-h-screen bg-hero-gradient"
+      variants={pageEnter()}
+      initial="hidden"
+      animate="visible"
+    >
       {/* Nav */}
       <header className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -76,29 +87,35 @@ export default function LandingPage() {
 
       {/* Stats */}
       <section className="max-w-4xl mx-auto px-6 pb-14">
-        <div className="grid grid-cols-4 gap-4">
+        <motion.div className="grid grid-cols-4 gap-4" variants={staggerContainer(0.06)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }}>
           {STATS.map(s => (
-            <div key={s.label} className="bg-white/70 backdrop-blur rounded-2xl border border-gray-100 p-5 text-center">
+            <motion.div key={s.label} variants={panelLift} className="bg-white/70 backdrop-blur rounded-2xl border border-gray-100 p-5 text-center interactive-surface">
               <div className="font-display font-bold text-3xl text-brand-indigo">{s.value}</div>
               <div className="text-xs text-gray-500 mt-1">{s.label}</div>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </section>
 
       {/* Feature cards */}
       <section className="max-w-5xl mx-auto px-6 pb-16">
-        <div className="grid md:grid-cols-3 gap-5">
+        <motion.div className="grid md:grid-cols-3 gap-5" variants={staggerContainer(0.08)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}>
           {FEATURES.map(f => (
-            <div key={f.title} className="card-hover animate-fade-in">
+            <motion.div
+              key={f.title}
+              variants={panelLift}
+              whileHover={prefersReducedMotion ? undefined : { y: -4, scale: 1.01 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="card-hover animate-fade-in interactive-surface"
+            >
               <div className={`w-12 h-12 ${f.bg} rounded-xl flex items-center justify-center mb-4`}>
                 <f.icon size={22} className={f.color} />
               </div>
               <h3 className="font-bold text-gray-900 mb-2">{f.title}</h3>
               <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </section>
 
       {/* 7-Step Journey */}
@@ -153,6 +170,6 @@ export default function LandingPage() {
           ))}
         </div>
       </footer>
-    </main>
+    </motion.main>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import VoiceInput from "@/components/ui/VoiceInput";
 import ConversationTranscript from "@/components/register/ConversationTranscript";
 import VoiceAgentControls from "@/components/register/VoiceAgentControls";
@@ -11,6 +12,8 @@ import type { OrbState } from "@/components/ui/AIOrb";
 import CompletionCelebration from "@/components/ui/CompletionCelebration";
 import { getNextQuestion, initialPointer, getSectionIndex } from "@/lib/voice-agent/engine";
 import type { ConversationMessage, ConversationPointer, RegistrationState } from "@/types";
+import { cn } from "@/lib/utils";
+import { panelLift, SPRING_SOFT, statusGlow } from "@/lib/motion";
 
 interface HistoryEntry {
   pointer: ConversationPointer;
@@ -124,13 +127,26 @@ export default function ConversationRegistrationShell({
     ts: "",
     dropped: 0,
   });
+  const prefersReducedMotion = useReducedMotion();
   const busyRef = useRef(busy);
   const runningRef = useRef(running);
   const speakingRef = useRef(isAssistantSpeaking);
 
   const currentPrompt = useMemo(() => getNextQuestion(pointer, answers), [pointer, answers]);
 
-  const orbState: OrbState = !running ? "idle" : (busy || isAssistantSpeaking) ? "speaking" : isListening ? "listening" : "idle";
+  const interactionState: OrbState = pointer.stepId === "done"
+    ? "success"
+    : busy
+      ? "processing"
+      : !running
+        ? "idle"
+        : isAssistantSpeaking
+          ? "speaking"
+          : isListening
+            ? "listening"
+            : "idle";
+
+  const orbIntensity = interactionState === "speaking" ? 1.25 : interactionState === "listening" ? 1.15 : interactionState === "processing" ? 1.35 : 1;
 
   // Detect section transitions for celebration
   const prevSectionRef = useRef(getSectionIndex(pointer.stepId));
@@ -327,40 +343,100 @@ export default function ConversationRegistrationShell({
     [processAnswer],
   );
 
+  const modeLabel =
+    interactionState === "success"
+      ? "Completed"
+      : interactionState === "processing"
+        ? "Processing Answer"
+        : interactionState === "speaking"
+          ? "Assistant Speaking"
+          : interactionState === "listening"
+            ? "Listening"
+            : "Paused";
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <motion.div
+      className="space-y-4"
+      variants={panelLift}
+      initial="hidden"
+      animate="visible"
+    >
+      <motion.div layout={!prefersReducedMotion} className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold text-gray-900 text-lg">Voice Assistant</h2>
           <p className="text-xs text-gray-500">Interactive voice + text guidance. Use Pause to stop voice session; typing remains available anytime.</p>
         </div>
         <span className="badge bg-blue-100 text-blue-700">Current: {pointer.stepId.replaceAll("_", " ")}</span>
-      </div>
+      </motion.div>
 
-      <ProgressStepper currentStepId={pointer.stepId} />
+      <motion.div layout={!prefersReducedMotion}>
+        <ProgressStepper currentStepId={pointer.stepId} />
+      </motion.div>
 
-      {celebrationText && <CompletionCelebration text={celebrationText} />}
+      <AnimatePresence>
+        {celebrationText && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22 }}
+          >
+            <CompletionCelebration text={celebrationText} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <VoiceAgentControls
-        running={running}
-        onStartPause={onStartPause}
-        onRepeat={onRepeat}
-        onSkip={onSkip}
-        onGoBack={onGoBack}
-        onEditLast={onEditLast}
-      />
+      <motion.div layout={!prefersReducedMotion} transition={SPRING_SOFT}>
+        <VoiceAgentControls
+          running={running}
+          onStartPause={onStartPause}
+          onRepeat={onRepeat}
+          onSkip={onSkip}
+          onGoBack={onGoBack}
+          onEditLast={onEditLast}
+        />
+      </motion.div>
 
-      <AIOrb state={orbState} />
+      <motion.div
+        layout={!prefersReducedMotion}
+        className={cn(
+          "interaction-state interactive-surface bg-gradient-to-br p-3 ring-1",
+          statusGlow[interactionState].ring,
+          statusGlow[interactionState].surface,
+        )}
+        transition={SPRING_SOFT}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={cn("text-xs font-semibold uppercase tracking-[0.12em]", statusGlow[interactionState].text)}>{modeLabel}</p>
+            <p className="text-xs text-gray-600">Live command bar adapts to every turn so the flow feels guided, not static.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="voice-pill voice-pill-idle text-[11px] font-semibold">Step {pointer.stepId.replaceAll("_", " ")}</span>
+            {busy && <span className="voice-pill voice-pill-live text-[11px] font-semibold animate-soft-shimmer bg-[length:180%_100%]">Syncing...</span>}
+          </div>
+        </div>
+      </motion.div>
 
-      <ConversationTranscript
-        messages={messages}
-        answers={answers}
-        setAnswers={setAnswers}
-        assessorId={assessorId}
-        setAssessorId={setAssessorId}
-      />
+      <motion.div layout={!prefersReducedMotion} transition={SPRING_SOFT}>
+        <AIOrb
+          state={interactionState}
+          intensity={orbIntensity}
+          mutedMotion={Boolean(prefersReducedMotion)}
+        />
+      </motion.div>
 
-      <div className="space-y-2">
+      <motion.div layout={!prefersReducedMotion} transition={SPRING_SOFT}>
+        <ConversationTranscript
+          messages={messages}
+          answers={answers}
+          setAnswers={setAnswers}
+          assessorId={assessorId}
+          setAssessorId={setAssessorId}
+        />
+      </motion.div>
+
+      <motion.div className="space-y-2" layout={!prefersReducedMotion} transition={SPRING_SOFT}>
         <label className="label">Answer by text</label>
         <div className="flex gap-2 items-center">
           <input
@@ -380,9 +456,9 @@ export default function ConversationRegistrationShell({
             Send
           </button>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
+      <motion.div className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3" layout={!prefersReducedMotion}>
         <div>
           <p className="text-xs font-semibold text-gray-700">Answer by voice</p>
           <p className="text-xs text-gray-500">
@@ -401,16 +477,16 @@ export default function ConversationRegistrationShell({
           onListeningStateChange={setIsListening}
           onFinalTranscript={handleVoiceTranscript}
         />
-      </div>
+      </motion.div>
 
-      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+      <motion.div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2" layout={!prefersReducedMotion}>
         <p className="text-xs text-gray-600">
           Voice status:{" "}
           <span className="font-semibold text-gray-800">
             {!running ? "Paused" : busy || isAssistantSpeaking ? "Assistant speaking..." : isListening ? "Recording..." : "Connecting mic..."}
           </span>
         </p>
-      </div>
+      </motion.div>
 
       {process.env.NODE_ENV !== "production" && (
         <p className="sr-only" aria-hidden="true">
@@ -418,8 +494,20 @@ export default function ConversationRegistrationShell({
         </p>
       )}
 
-      {micError && <p className="text-xs text-red-600">{micError}</p>}
-      {busy && <p className="text-xs text-gray-500">Processing answer...</p>}
+      <AnimatePresence>
+        {micError && (
+          <motion.p className="text-xs text-red-600" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            {micError}
+          </motion.p>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {busy && (
+          <motion.p className="text-xs text-gray-500" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            Processing answer...
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       {isVoiceIntroOpen && (
         <div className="modal-backdrop">
@@ -443,6 +531,6 @@ export default function ConversationRegistrationShell({
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

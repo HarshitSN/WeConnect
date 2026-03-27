@@ -26,6 +26,7 @@ export function parseYesNo(input: string): boolean | null {
     /\b(yes|yeah|yup|yep|haan|ha|sure|correct|affirmative|absolutely|definitely|of course|right)\b/,
     /\byes it is\b/,
     /\bit is yes\b/,
+    /\b(continue|go ahead|move on|next)\b/,
   ];
   const noPatterns = [
     /\b(no|nope|nah|nahi|negative)\b/,
@@ -65,7 +66,7 @@ function stripLeadingPhrases(input: string, phrases: string[]): string {
 function cleanupEntityValue(raw: string): string {
   return raw
     .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/^[\s,:-]+|[\s,:-]+$/g, "")
+    .replace(/^[\s,.:-]+|[\s,.:-]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -98,6 +99,8 @@ export function normalizeOwnerName(input: string): string {
   let text = input.replace(/\b(?:gender|ownership|holds|owns|percent|percentage|%|male|female|man|woman|non\s*binary).*$/i, "");
   
   const stripped = stripLeadingPhrases(text, [
+    "the\\s+full\\s+name\\s+is",
+    "owner\\s+full\\s+name\\s+is",
     "my\\s+name\\s+is",
     "full\\s+name\\s+is",
     "his\\s+name\\s+is",
@@ -115,8 +118,18 @@ export function normalizeOwnerName(input: string): string {
     "they\\s+are",
   ]);
   
-  let cleaned = cleanupEntityValue(stripped).replace(/^(?:and|also)\s+|\s+(?:and|also)$/ig, "").trim();
-  cleaned = cleaned.replace(/^,+|,+$/g, "").trim();
+  let cleaned = cleanupEntityValue(stripped);
+  let prev;
+  do {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/\b(?:and\s+(?:she'?s|he'?s|they'?re|their|her|his|the|a|an)|and)\s*$/ig, "")
+      .replace(/\s+(?:the|is|are|a|an|ownership|holds|she'?s|he'?s|they'?re|her|his|their)\s*$/ig, "")
+      .replace(/^(?:and|also)\s+|\s+(?:and|also)$/ig, "")
+      .replace(/^,+|,+$/g, "")
+      .replace(/[.]+$/g, "")
+      .trim();
+  } while (cleaned !== prev);
   return toTitleCase(cleaned || text.trim() || input.trim());
 }
 
@@ -241,8 +254,8 @@ export function parseDesignations(input: string): string[] {
   if (hits.length === 0) {
     const aliases: Array<{ pattern: RegExp; designation: string }> = [
       { pattern: /\b(small\s*business)\b/, designation: "Small Business" },
-      { pattern: /\b(women\s*led)\b/, designation: "Women-Led Business" },
-      { pattern: /\b(women\s*managed)\b/, designation: "Women-Managed Business" },
+      { pattern: /\b(wom[ae]n\s*led)\b/, designation: "Women-Led Business" },
+      { pattern: /\b(wom[ae]n\s*managed)\b/, designation: "Women-Managed Business" },
       { pattern: /\b(minority\s*owned)\b/, designation: "Minority-Owned Business" },
       { pattern: /\b(lgbtq|lgbt)\b/, designation: "LGBTQ+-Owned Business" },
       { pattern: /\b(veteran\s*owned)\b/, designation: "Veteran-Owned Business" },
@@ -325,7 +338,10 @@ export function parseOwnerDetails(input: string): { name: string; gender: "femal
   const gender = parseGender(input);
   const percent = parsePercent(input);
   
-  let remainder = input;
+  let remainder = input
+    .replace(/\b(?:and\s+)?(?:her|his|their)?\s*(?:gender|sex)\s*(?:is|:)?\s*(?:female|male|non[\s-]*binary|other|mail|femail|man|woman|men|women)\b/ig, " ")
+    .replace(/\b(?:ownership|ownership\s+percentage)\s*(?:is|:)?\s*\d{1,3}(?:\.\d+)?\s*%?\b/ig, " ")
+    .replace(/\b(?:ownership|holds?|owns?)\b[^,.!?]*(?:percent|percentage|%)\b/ig, " ");
   
   if (gender) {
     const gword = gender === "non_binary" ? "non binary" : gender;
@@ -358,7 +374,7 @@ export function parseEmployeeRange(input: string): string | null {
 
   // handle spoken variants
   const spokenMap: Array<{ patterns: RegExp[]; range: string }> = [
-    { patterns: [/\b1\s*to\s*10\b/, /\bone\s+to\s+ten\b/, /\b1\s*-\s*10\b/], range: "1-10" },
+    { patterns: [/\b1\s*(to|two)\s*10\b/, /\bone\s+(to|two)\s+ten\b/, /\b1\s*-\s*10\b/], range: "1-10" },
     { patterns: [/\b11\s*to\s*50\b/, /\beleven\s+to\s+fifty\b/, /\b11\s*-\s*50\b/], range: "11-50" },
     { patterns: [/\b51\s*to\s*200\b/, /\bfifty\s*one\s+to\s+two\s+hundred\b/, /\b51\s*-\s*200\b/], range: "51-200" },
     { patterns: [/\b201\s*to\s*500\b/, /\btwo\s+hundred\s*(and\s+)?one\s+to\s+five\s+hundred\b/], range: "201-500" },
@@ -415,9 +431,16 @@ export function parseCertType(input: string): "self" | "digital" | null {
 export function parseAssessorId(input: string): string | null {
   const t = clean(input);
   if (t.includes("skip") || t.includes("none") || t.includes("no assessor")) return "";
+  const inputWords = t.split(/\s+/);
   const match = MOCK_ASSESSORS.find((a) => {
-    const name = clean(a.name);
-    return t.includes(name) || name.split(" ").filter(Boolean).every((part) => part.length > 2 && t.includes(part));
+    const [baseName] = a.name.split(",");
+    const cleanedBaseName = clean(baseName);
+    if (t.includes(cleanedBaseName)) return true;
+    const nameParts = cleanedBaseName.split(" ").filter(Boolean);
+    return nameParts.every((part) => {
+      if (part.length <= 2) return true;
+      return t.includes(part) || wordMatchScore(inputWords, part) >= 0.7;
+    });
   });
   return match?.id ?? null;
 }
