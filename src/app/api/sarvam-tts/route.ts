@@ -34,19 +34,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch("https://api.sarvam.ai/text-to-speech", {
-      method: "POST",
-      headers: {
-        "API-Subscription-Key": sarvamApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        target_language_code: languageCode,
-        speaker,
-        model: "bulbul:v3",
-      }),
-    });
+    const callSarvamTts = async (candidateSpeaker: string) =>
+      fetch("https://api.sarvam.ai/text-to-speech", {
+        method: "POST",
+        headers: {
+          "API-Subscription-Key": sarvamApiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          target_language_code: languageCode,
+          speaker: candidateSpeaker,
+          model: "bulbul:v3",
+        }),
+      });
+
+    let selectedSpeaker = speaker;
+    let response = await callSarvamTts(selectedSpeaker);
+
+    // Some env speaker values are rejected by upstream. Retry with stable default.
+    if (!response.ok && selectedSpeaker !== "shubh") {
+      const firstError = await response.text();
+      console.warn("sarvam-tts upstream error with speaker:", selectedSpeaker, response.status, firstError);
+      selectedSpeaker = "shubh";
+      response = await callSarvamTts(selectedSpeaker);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -83,6 +95,7 @@ export async function POST(request: Request) {
       ok: true,
       audioBase64,
       mimeType: "audio/wav",
+      speaker: selectedSpeaker,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

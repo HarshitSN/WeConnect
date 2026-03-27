@@ -74,16 +74,22 @@ function nextBySkip(pointer: ConversationPointer, state: RegistrationState): Con
 }
 
 async function playPrompt(text: string) {
+  const safeText = text.trim();
+  if (!safeText) return;
+
   try {
     const response = await fetch("/api/sarvam-tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, languageCode: "en-IN" }),
+      body: JSON.stringify({ text: safeText, languageCode: "en-IN" }),
     });
 
-    if (!response.ok) return;
     const data = await response.json();
-    if (!data.ok || !data.audioBase64) return;
+    if (!response.ok || !data.ok) {
+      console.warn("[TTS] Request failed:", response.status, data?.error?.code, data?.error?.details || data?.error?.message);
+      return;
+    }
+    if (!data.audioBase64) return;
 
     const audio = new Audio(`data:${data.mimeType ?? "audio/wav"};base64,${data.audioBase64}`);
     await new Promise<void>((resolve) => {
@@ -178,10 +184,13 @@ export default function ConversationRegistrationShell({
   }, [isAssistantSpeaking]);
 
   const speakPrompt = useCallback(async (text: string) => {
+    const safeText = text.trim();
+    if (!safeText) return;
+
     setIsAssistantSpeaking(true);
     setVoiceResetSignal((v) => v + 1);
     try {
-      await playPrompt(text);
+      await playPrompt(safeText);
     } finally {
       setIsAssistantSpeaking(false);
       setVoiceResetSignal((v) => v + 1);
@@ -254,7 +263,8 @@ export default function ConversationRegistrationShell({
           return;
         }
 
-        const nextPrompt = data.prompt || getNextQuestion(result.next, answers);
+        const rawPrompt = typeof data.prompt === "string" ? data.prompt.trim() : "";
+        const nextPrompt = rawPrompt || getNextQuestion(result.next, answers);
         addMessage("bot_question", nextPrompt, result.next);
         await speakPrompt(nextPrompt);
       } catch {
