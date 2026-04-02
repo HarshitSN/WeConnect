@@ -18,6 +18,7 @@ export default function VoiceInput({
   onFinalTranscript,
   onSessionError,
   onListeningStateChange,
+  onSpeechStart,
 }: {
   sessionActive: boolean;
   suspended?: boolean;
@@ -27,6 +28,7 @@ export default function VoiceInput({
   onFinalTranscript: (text: string) => void;
   onSessionError?: (error: string) => void;
   onListeningStateChange?: (listening: boolean) => void;
+  onSpeechStart?: () => void;
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -188,6 +190,7 @@ export default function VoiceInput({
           // speech detected
           if (!hasSpeechRef.current) {
             console.log("[VoiceInput] Speech detected (RMS:", rms.toFixed(4), ")");
+            onSpeechStart?.();
           }
           hasSpeechRef.current = true;
           silentSinceRef.current = null;

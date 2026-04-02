@@ -73,11 +73,12 @@ function nextBySkip(pointer: ConversationPointer, state: RegistrationState): Con
   }
 }
 
-async function playPrompt(text: string) {
+async function playPrompt(text: string, abortSignal?: AbortSignal) {
   const safeText = text.trim();
   if (!safeText) return;
 
   try {
+    if (abortSignal?.aborted) return;
     const response = await fetch("/api/sarvam-tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,12 +91,28 @@ async function playPrompt(text: string) {
       return;
     }
     if (!data.audioBase64) return;
+    if (abortSignal?.aborted) return;
 
     const audio = new Audio(`data:${data.mimeType ?? "audio/wav"};base64,${data.audioBase64}`);
     await new Promise<void>((resolve) => {
-      audio.onended = () => resolve();
-      audio.onerror = () => resolve();
-      void audio.play().catch(() => resolve());
+      let handled = false;
+      const finish = () => {
+        if (!handled) {
+          handled = true;
+          resolve();
+        }
+      };
+      audio.onended = finish;
+      audio.onerror = finish;
+      
+      if (abortSignal) {
+        abortSignal.addEventListener("abort", () => {
+          audio.pause();
+          finish();
+        });
+      }
+      
+      void audio.play().catch(finish);
     });
   } catch {
     // TTS is best-effort; silent fallback keeps flow resilient.
@@ -137,6 +154,7 @@ export default function ConversationRegistrationShell({
   const busyRef = useRef(busy);
   const runningRef = useRef(running);
   const speakingRef = useRef(isAssistantSpeaking);
+  const audioAbortControllerRef = useRef<AbortController | null>(null);
 
   const currentPrompt = useMemo(() => getNextQuestion(pointer, answers), [pointer, answers]);
 
@@ -187,13 +205,20 @@ export default function ConversationRegistrationShell({
     const safeText = text.trim();
     if (!safeText) return;
 
+    if (audioAbortControllerRef.current) {
+      audioAbortControllerRef.current.abort();
+    }
+    const ac = new AbortController();
+    audioAbortControllerRef.current = ac;
+
     setIsAssistantSpeaking(true);
     setVoiceResetSignal((v) => v + 1);
     try {
-      await playPrompt(safeText);
+      await playPrompt(safeText, ac.signal);
     } finally {
-      setIsAssistantSpeaking(false);
-      setVoiceResetSignal((v) => v + 1);
+      if (audioAbortControllerRef.current === ac) {
+        setIsAssistantSpeaking(false);
+      }
     }
   }, []);
 
@@ -255,6 +280,7 @@ export default function ConversationRegistrationShell({
 
         if (!result.ok && result.clarification) {
           addMessage("system_hint", result.clarification);
+          setBusy(false);
           await speakPrompt(result.clarification);
           return;
         }
@@ -264,6 +290,7 @@ export default function ConversationRegistrationShell({
         if (result.done) {
           const doneMsg = "Voice steps complete. Review the form, finish payment, then submit registration.";
           addMessage("system_hint", doneMsg);
+          setBusy(false);
           await speakPrompt(doneMsg);
           return;
         }
@@ -271,10 +298,10 @@ export default function ConversationRegistrationShell({
         const rawPrompt = typeof data.prompt === "string" ? data.prompt.trim() : "";
         const nextPrompt = rawPrompt || getNextQuestion(result.next, answers);
         addMessage("bot_question", nextPrompt, result.next);
+        setBusy(false);
         await speakPrompt(nextPrompt);
       } catch {
         addMessage("system_hint", "Network issue while processing answer. Please retry.");
-      } finally {
         setBusy(false);
       }
     },
@@ -340,6 +367,14 @@ export default function ConversationRegistrationShell({
     setIsVoiceIntroOpen(false);
     setRunning(true);
   };
+
+  const handleSpeechStart = useCallback(() => {
+    if (audioAbortControllerRef.current) {
+      audioAbortControllerRef.current.abort();
+      audioAbortControllerRef.current = null;
+      setIsAssistantSpeaking(false);
+    }
+  }, []);
 
   const handleVoiceTranscript = useCallback(
     (text: string) => {
@@ -483,12 +518,13 @@ export default function ConversationRegistrationShell({
         <VoiceInput
           placeholder="Voice session paused"
           sessionActive={running}
-          suspended={busy || isAssistantSpeaking}
+          suspended={busy}
           resetSignal={voiceResetSignal}
           onSessionError={(error) => {
             setMicError(error);
             addMessage("system_hint", error);
           }}
+          onSpeechStart={handleSpeechStart}
           onListeningStateChange={setIsListening}
           onFinalTranscript={handleVoiceTranscript}
         />
