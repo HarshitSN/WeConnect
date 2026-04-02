@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { getNextQuestion, parseStepAnswer } from "@/lib/voice-agent/engine";
+import { processWithBrain } from "@/lib/voice-agent/llm-brain";
 import type { ConversationPointer, RegistrationState } from "@/types";
 
 interface Payload {
   pointer: ConversationPointer;
   answer: string;
   state: RegistrationState;
+  history?: { role: string; text: string }[];
 }
 
 export async function POST(request: Request) {
@@ -25,7 +27,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = parseStepAnswer(body.pointer, body.answer, body.state);
+    let answerToProcess = body.answer;
+    let result = parseStepAnswer(body.pointer, answerToProcess, body.state);
+
+    // If deterministic parsing fails and brain is enabled, let the LLM handle context & guardrails
+    if (!result.ok && process.env.VOICE_AGENT_BRAIN_MODE === "hybrid_guarded") {
+      const llmResult = await processWithBrain(body.pointer, body.state, body.answer, body.history);
+      
+      if (llmResult?.action === "answered") {
+        return NextResponse.json({
+          ok: true,
+          result: {
+            ok: false,
+            confidence: 0.99,
+            confirmation: "",
+            clarification: llmResult.responseText,
+            next: body.pointer,
+          },
+          prompt: llmResult.responseText,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (llmResult?.action === "extracted") {
+        result = parseStepAnswer(body.pointer, llmResult.extractedValue, body.state);
+      }
+    }
 
     const mergedState: RegistrationState = {
       ...body.state,

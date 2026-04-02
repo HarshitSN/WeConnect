@@ -221,10 +221,15 @@ export default function ConversationRegistrationShell({
       setBusy(true);
 
       try {
+        const recentMessages = messages.slice(-4).map(msg => ({
+          role: msg.type === "user_answer" ? "user" : "assistant",
+          text: msg.text
+        }));
+
         const response = await fetch("/api/register-voice-agent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pointer, answer, state: answers }),
+          body: JSON.stringify({ pointer, answer, state: answers, history: recentMessages }),
         });
 
         const data = await response.json();
