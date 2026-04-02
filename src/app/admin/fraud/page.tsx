@@ -64,7 +64,7 @@ export default function AdminFraudPage() {
           {[
             { label: "Total Alerts (30d)", value: "24", icon: AlertTriangle, color: "text-red-500", bg: "bg-red-50" },
             { label: "Duplicates Detected", value: "8",  icon: Search,       color: "text-orange-500", bg: "bg-orange-50" },
-            { label: "Doc Forgeries",       value: "3",  icon: FileSearch,   color: "text-purple-500", bg: "bg-purple-50" },
+            { label: "Doc Forgeries",       value: "3",  icon: FileSearch,   color: "text-amber-500", bg: "bg-amber-50" },
             { label: "Resolved",            value: "13", icon: Shield,       color: "text-green-500", bg: "bg-green-50" },
           ].map(s => (
             <div key={s.label} className="card flex items-center gap-3 p-4">

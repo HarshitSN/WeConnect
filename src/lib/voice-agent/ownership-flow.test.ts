@@ -111,3 +111,47 @@ test("existing yes/no steps still parse explicit yes/no responses", () => {
   assert.equal(webank.updates?.webank_certified, false);
   assert.equal(webank.next.stepId, "naics_codes");
 });
+
+test("naics clarification includes concrete food-services example for ambiguous responses", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "it is about pizza and food",
+    baseState(),
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.clarification ?? "", /72 - Accommodation and Food Services/i);
+});
+
+test("naics clarification escalates after repeated invalid retries", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "not sure",
+    baseState(),
+    { stepRetryCounts: { naics_codes: 1 } },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.clarification ?? "", /say exactly 'NAICS 72'/i);
+  assert.match(result.clarification ?? "", /explicitly confirm/i);
+});
+
+test("naics parser accepts spoken sector code seventy two", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "Okay sure, seventy two then.",
+    baseState(),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.updates?.naics_codes?.includes("72"), true);
+});
+
+test("unspsc clarification escalates after repeated invalid retries", () => {
+  const result = parseStepAnswer(
+    { stepId: "unspsc_codes" },
+    "continue",
+    baseState(),
+    { stepRetryCounts: { unspsc_codes: 2 } },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.clarification ?? "", /UNSPSC 43000000/i);
+  assert.match(result.clarification ?? "", /explicitly confirm/i);
+});

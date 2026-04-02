@@ -1,13 +1,14 @@
 import { Sparkles } from "lucide-react";
+
 export default function WelcomeBanner({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="bg-banner-gradient rounded-2xl p-5 flex items-center gap-4 mb-6">
-      <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+    <div className="mb-6 flex items-center gap-4 rounded-2xl border border-white/30 bg-banner-gradient p-5 shadow-lg shadow-brand-indigo/20">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/30 bg-white/20">
         <Sparkles className="text-white" size={20} />
       </div>
       <div>
-        <h2 className="text-white font-bold text-base leading-snug">{title}</h2>
-        <p className="text-white/75 text-sm mt-0.5">{subtitle}</p>
+        <h2 className="text-base font-bold leading-snug text-white">{title}</h2>
+        <p className="mt-0.5 text-sm text-white/80">{subtitle}</p>
       </div>
     </div>
   );

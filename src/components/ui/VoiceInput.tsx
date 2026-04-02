@@ -4,9 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 
 /* ─── constants ─── */
-const SILENCE_THRESHOLD = 0.012;   // RMS below this = silence
-const SILENCE_DURATION_MS = 1800;  // 1.8s of silence after speech → commit
-const ANALYSIS_INTERVAL_MS = 100;  // VAD poll interval
+const BASE_SILENCE_THRESHOLD = 0.012; // baseline RMS gate
+const SILENCE_DURATION_MS = 900; // natural end-of-turn pause
+const ANALYSIS_INTERVAL_MS = 80; // VAD poll interval
+const CALIBRATION_WINDOW_MS = 800; // learn room noise floor at utterance start
+const START_SPEECH_HOLD_MS = 180; // debounce speech start to avoid clicks/noise
+const NO_SPEECH_TIMEOUT_MS = 9000; // restart recorder if user never speaks
+const MAX_UTTERANCE_MS = 14000; // force commit on very long single turn
 const DEDUP_WINDOW_MS = 2500;
 
 export default function VoiceInput({
@@ -44,6 +48,12 @@ export default function VoiceInput({
   // state tracking refs
   const hasSpeechRef = useRef(false);       // did we detect any speech in this recording?
   const silentSinceRef = useRef<number | null>(null);
+  const speechCandidateSinceRef = useRef<number | null>(null);
+  const calibratingUntilRef = useRef(0);
+  const noSpeechDeadlineRef = useRef(0);
+  const maxUtteranceDeadlineRef = useRef(0);
+  const noiseFloorRef = useRef(BASE_SILENCE_THRESHOLD * 0.7);
+  const adaptiveThresholdRef = useRef(BASE_SILENCE_THRESHOLD);
   const recordStartRef = useRef(0);
   const lastSubmittedRef = useRef({ text: "", ts: 0 });
   const mountedRef = useRef(true);
@@ -137,6 +147,12 @@ export default function VoiceInput({
     chunksRef.current = [];
     hasSpeechRef.current = false;
     silentSinceRef.current = null;
+    speechCandidateSinceRef.current = null;
+    calibratingUntilRef.current = 0;
+    noSpeechDeadlineRef.current = 0;
+    maxUtteranceDeadlineRef.current = 0;
+    noiseFloorRef.current = BASE_SILENCE_THRESHOLD * 0.7;
+    adaptiveThresholdRef.current = BASE_SILENCE_THRESHOLD;
     setRecState(false);
   }, [setRecState, stopVAD]);
 
@@ -167,6 +183,12 @@ export default function VoiceInput({
       // start recording
       recorder.start(300); // collect data every 300ms
       recordStartRef.current = Date.now();
+      calibratingUntilRef.current = recordStartRef.current + CALIBRATION_WINDOW_MS;
+      noSpeechDeadlineRef.current = recordStartRef.current + NO_SPEECH_TIMEOUT_MS;
+      maxUtteranceDeadlineRef.current = 0;
+      speechCandidateSinceRef.current = null;
+      noiseFloorRef.current = BASE_SILENCE_THRESHOLD * 0.7;
+      adaptiveThresholdRef.current = BASE_SILENCE_THRESHOLD;
       setRecState(true);
       setError(null);
 
@@ -183,28 +205,63 @@ export default function VoiceInput({
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
         const rms = Math.sqrt(sum / buf.length);
+        const now = Date.now();
 
-        if (rms >= SILENCE_THRESHOLD) {
-          // speech detected
-          if (!hasSpeechRef.current) {
-            console.log("[VoiceInput] Speech detected (RMS:", rms.toFixed(4), ")");
-          }
-          hasSpeechRef.current = true;
-          silentSinceRef.current = null;
-        } else if (hasSpeechRef.current) {
-          // silence after speech
-          if (silentSinceRef.current === null) {
-            silentSinceRef.current = Date.now();
-          } else if (Date.now() - silentSinceRef.current >= SILENCE_DURATION_MS) {
-            console.log("[VoiceInput] Silence detected after speech, committing...");
-            // stop the recorder — onstop will handle transcription
-            stopVAD();
-            if (recorder.state === "recording") {
-              try { recorder.stop(); } catch { /* noop */ }
+        // Adaptive noise-floor calibration before speech starts.
+        if (!hasSpeechRef.current && now <= calibratingUntilRef.current) {
+          noiseFloorRef.current = noiseFloorRef.current * 0.9 + rms * 0.1;
+          adaptiveThresholdRef.current = Math.max(
+            BASE_SILENCE_THRESHOLD,
+            Math.min(0.06, noiseFloorRef.current * 2.4),
+          );
+        }
+
+        const speechThreshold = adaptiveThresholdRef.current;
+        const isSpeechNow = rms >= speechThreshold;
+
+        if (!hasSpeechRef.current) {
+          if (isSpeechNow) {
+            if (speechCandidateSinceRef.current === null) {
+              speechCandidateSinceRef.current = now;
+            } else if (now - speechCandidateSinceRef.current >= START_SPEECH_HOLD_MS) {
+              hasSpeechRef.current = true;
+              silentSinceRef.current = null;
+              maxUtteranceDeadlineRef.current = now + MAX_UTTERANCE_MS;
+              console.log("[VoiceInput] Speech detected (RMS:", rms.toFixed(4), "threshold:", speechThreshold.toFixed(4), ")");
+            }
+          } else {
+            speechCandidateSinceRef.current = null;
+            if (now >= noSpeechDeadlineRef.current) {
+              console.log("[VoiceInput] No speech detected in window, restarting recorder...");
+              stopVAD();
+              if (recorder.state === "recording") {
+                try { recorder.stop(); } catch { /* noop */ }
+              }
             }
           }
+          return;
         }
-        // if no speech yet and silence — do nothing, keep waiting
+
+        // Speech has started; now detect end-of-turn silence or max utterance.
+        if (isSpeechNow) {
+          silentSinceRef.current = null;
+        } else if (silentSinceRef.current === null) {
+          silentSinceRef.current = now;
+        } else if (now - silentSinceRef.current >= SILENCE_DURATION_MS) {
+          console.log("[VoiceInput] End-of-turn silence detected, committing...");
+          stopVAD();
+          if (recorder.state === "recording") {
+            try { recorder.stop(); } catch { /* noop */ }
+          }
+        }
+
+        if (maxUtteranceDeadlineRef.current > 0 && now >= maxUtteranceDeadlineRef.current) {
+          console.log("[VoiceInput] Max utterance reached, committing...");
+          stopVAD();
+          if (recorder.state === "recording") {
+            try { recorder.stop(); } catch { /* noop */ }
+          }
+        }
       }, ANALYSIS_INTERVAL_MS);
 
       // when recorder stops (from VAD commit or external stop)
@@ -218,6 +275,10 @@ export default function VoiceInput({
           const hadSpeech = hasSpeechRef.current;
           hasSpeechRef.current = false;
           silentSinceRef.current = null;
+          speechCandidateSinceRef.current = null;
+          calibratingUntilRef.current = 0;
+          noSpeechDeadlineRef.current = 0;
+          maxUtteranceDeadlineRef.current = 0;
 
           if (hadSpeech && chunks.length > 0) {
             const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
@@ -296,6 +357,12 @@ export default function VoiceInput({
     chunksRef.current = [];
     hasSpeechRef.current = false;
     silentSinceRef.current = null;
+    speechCandidateSinceRef.current = null;
+    calibratingUntilRef.current = 0;
+    noSpeechDeadlineRef.current = 0;
+    maxUtteranceDeadlineRef.current = 0;
+    noiseFloorRef.current = BASE_SILENCE_THRESHOLD * 0.7;
+    adaptiveThresholdRef.current = BASE_SILENCE_THRESHOLD;
   }, [resetSignal]);
 
   /* ── cleanup on unmount ── */

@@ -246,8 +246,8 @@ export default function LiveFormMirror({
         <h3 className="text-sm font-semibold text-gray-800">Certification Path</h3>
         <FlashWrapper field="cert_type" flashKeys={flashKeys}>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => set("cert_type", "self")} className={cn("rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.cert_type === "self" ? "border-brand-purple bg-purple-50 text-brand-purple" : "border-gray-200")}>Self Certification</button>
-            <button onClick={() => set("cert_type", "digital")} className={cn("rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.cert_type === "digital" ? "border-brand-purple bg-purple-50 text-brand-purple" : "border-gray-200")}>Digital Certification</button>
+            <button onClick={() => set("cert_type", "self")} className={cn("rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.cert_type === "self" ? "border-brand-purple bg-amber-50 text-brand-purple" : "border-gray-200")}>Self Certification</button>
+            <button onClick={() => set("cert_type", "digital")} className={cn("rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.cert_type === "digital" ? "border-brand-purple bg-amber-50 text-brand-purple" : "border-gray-200")}>Digital Certification</button>
           </div>
         </FlashWrapper>
 

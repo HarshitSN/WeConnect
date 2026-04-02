@@ -30,7 +30,7 @@ function CertTypePicker({ value, onChange }: { value: CertType | null; onChange:
         return (
           <button key={type} onClick={() => onChange(type)}
             className={cn("text-left rounded-2xl border-2 p-6 transition-all",
-              sel ? "border-brand-purple bg-purple-50/30" : "border-gray-200 hover:border-gray-300")}>
+              sel ? "border-brand-purple bg-amber-50/30" : "border-gray-200 hover:border-gray-300")}>
             {type === "digital" && (
               <div className="flex justify-end mb-2">
                 <span className="badge bg-amber-100 text-amber-700">⭐ Recommended</span>
@@ -99,7 +99,7 @@ function CertificatePreview({ certType }: { certType: CertType }) {
   return (
     <div className="space-y-6">
       {/* Certificate mockup */}
-      <div className="relative bg-gradient-to-br from-indigo-50 via-white to-purple-50 rounded-2xl border-2 border-brand-indigo/20 p-8 text-center overflow-hidden">
+      <div className="relative bg-gradient-to-br from-indigo-50 via-white to-amber-50 rounded-2xl border-2 border-brand-indigo/20 p-8 text-center overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-banner-gradient" />
         <div className="absolute -top-10 -right-10 w-32 h-32 bg-brand-purple/5 rounded-full" />
         <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-brand-blue/5 rounded-full" />
@@ -219,7 +219,7 @@ export default function CertifyPage() {
       <main className="max-w-3xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
-          <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0">
             <Award size={24} className="text-brand-purple" />
           </div>
           <div>

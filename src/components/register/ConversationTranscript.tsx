@@ -16,12 +16,14 @@ export default function ConversationTranscript({
   setAnswers,
   assessorId,
   setAssessorId,
+  isSubmitting = false,
 }: {
   messages: ConversationMessage[];
   answers: RegistrationState;
   setAnswers: Dispatch<SetStateAction<RegistrationState>>;
   assessorId: string;
   setAssessorId: (id: string) => void;
+  isSubmitting?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
@@ -116,6 +118,7 @@ export default function ConversationTranscript({
                     setAnswers={setAnswers}
                     assessorId={assessorId}
                     setAssessorId={setAssessorId}
+                    disabled={isSubmitting}
                   />
                 </div>
               )}

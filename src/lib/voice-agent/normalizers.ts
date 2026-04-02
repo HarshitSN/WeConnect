@@ -225,7 +225,33 @@ function findCodesByLabelOrCode(
 }
 
 export function parseNaicsCodes(input: string): string[] {
-  return findCodesByLabelOrCode(input, NAICS_CODES);
+  const direct = findCodesByLabelOrCode(input, NAICS_CODES);
+  if (direct.length > 0) return direct;
+
+  const t = clean(input);
+  const spokenCodeAliases: Array<{ pattern: RegExp; code: string }> = [
+    { pattern: /\bseventy[\s-]*two\b/, code: "72" },
+    { pattern: /\bseventy[\s-]*one\b/, code: "71" },
+    { pattern: /\bsixty[\s-]*two\b/, code: "62" },
+    { pattern: /\bsixty[\s-]*one\b/, code: "61" },
+    { pattern: /\bfifty[\s-]*six\b/, code: "56" },
+    { pattern: /\bfifty[\s-]*five\b/, code: "55" },
+    { pattern: /\bfifty[\s-]*four\b/, code: "54" },
+    { pattern: /\bfifty[\s-]*three\b/, code: "53" },
+    { pattern: /\bfifty[\s-]*two\b/, code: "52" },
+    { pattern: /\bfifty[\s-]*one\b/, code: "51" },
+    { pattern: /\bforty[\s-]*two\b/, code: "42" },
+    { pattern: /\btwenty[\s-]*three\b/, code: "23" },
+    { pattern: /\btwenty[\s-]*two\b/, code: "22" },
+    { pattern: /\btwenty[\s-]*one\b/, code: "21" },
+    { pattern: /\beleven\b/, code: "11" },
+  ];
+
+  for (const alias of spokenCodeAliases) {
+    if (alias.pattern.test(t)) return [alias.code];
+  }
+
+  return [];
 }
 
 export function parseUnspscCodes(input: string): string[] {

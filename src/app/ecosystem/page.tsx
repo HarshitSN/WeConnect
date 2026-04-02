@@ -4,7 +4,7 @@ import Navbar from "@/components/layout/Navbar";
 
 const NODES = [
   { icon: Users,     color: "bg-blue-100 text-brand-blue",   title: "Suppliers",    count: "2,400+", desc: "Women-owned businesses & SMEs seeking certification and buyer connections." },
-  { icon: Network,   color: "bg-purple-100 text-brand-purple",title: "Buyers",       count: "180+",   desc: "Corporate procurement teams searching for verified diverse suppliers." },
+  { icon: Network,   color: "bg-amber-100 text-brand-purple",title: "Buyers",       count: "180+",   desc: "Corporate procurement teams searching for verified diverse suppliers." },
   { icon: Cpu,       color: "bg-green-100 text-green-600",   title: "Certifiers",   count: "34",     desc: "Accredited bodies and assessors validating supplier credentials." },
   { icon: Globe,     color: "bg-amber-100 text-amber-600",   title: "Markets",      count: "12",     desc: "Industry and geographic marketplaces powered by verified supplier data." },
 ];

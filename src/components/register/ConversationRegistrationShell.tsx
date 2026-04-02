@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import VoiceInput from "@/components/ui/VoiceInput";
+import Vapi from "@vapi-ai/web";
 import ConversationTranscript from "@/components/register/ConversationTranscript";
 import VoiceAgentControls from "@/components/register/VoiceAgentControls";
 import ProgressStepper from "@/components/register/ProgressStepper";
@@ -11,15 +11,31 @@ import AIOrb from "@/components/ui/AIOrb";
 import type { OrbState } from "@/components/ui/AIOrb";
 import CompletionCelebration from "@/components/ui/CompletionCelebration";
 import { getNextQuestion, initialPointer, getSectionIndex } from "@/lib/voice-agent/engine";
-import type { ConversationMessage, ConversationPointer, RegistrationState } from "@/types";
+import type { ConversationMessage, ConversationPointer, ConversationStepId, RegistrationState } from "@/types";
 import { cn } from "@/lib/utils";
 import { panelLift, SPRING_SOFT, statusGlow } from "@/lib/motion";
+import {
+  buildVapiContextMessage,
+  extractFinalUserTranscript,
+  extractProcessRegistrationTurnAnswer,
+  isFillerUtterance,
+  isYesNoLikeUtterance,
+  normalizeUtterance,
+} from "@/lib/voice-agent/vapi-adapter";
 
 interface HistoryEntry {
   pointer: ConversationPointer;
   answers: RegistrationState;
   assessorId: string;
 }
+
+interface PendingAnswer {
+  text: string;
+  stepId: ConversationStepId;
+  ts: number;
+}
+
+const PENDING_ANSWER_FRESH_MS = 5000;
 
 function mkMessage(type: ConversationMessage["type"], text: string, pointer?: ConversationPointer): ConversationMessage {
   return {
@@ -73,35 +89,6 @@ function nextBySkip(pointer: ConversationPointer, state: RegistrationState): Con
   }
 }
 
-async function playPrompt(text: string) {
-  const safeText = text.trim();
-  if (!safeText) return;
-
-  try {
-    const response = await fetch("/api/sarvam-tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: safeText, languageCode: "en-IN" }),
-    });
-
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      console.warn("[TTS] Request failed:", response.status, data?.error?.code, data?.error?.details || data?.error?.message);
-      return;
-    }
-    if (!data.audioBase64) return;
-
-    const audio = new Audio(`data:${data.mimeType ?? "audio/wav"};base64,${data.audioBase64}`);
-    await new Promise<void>((resolve) => {
-      audio.onended = () => resolve();
-      audio.onerror = () => resolve();
-      void audio.play().catch(() => resolve());
-    });
-  } catch {
-    // TTS is best-effort; silent fallback keeps flow resilient.
-  }
-}
-
 export default function ConversationRegistrationShell({
   answers,
   setAnswers,
@@ -126,17 +113,31 @@ export default function ConversationRegistrationShell({
   const [hasVoiceIntroAccepted, setHasVoiceIntroAccepted] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [voiceResetSignal, setVoiceResetSignal] = useState(0);
   const [celebrationText, setCelebrationText] = useState<string | null>(null);
   const [voiceDebug, setVoiceDebug] = useState<{ lastUtterance: string; ts: string; dropped: number }>({
     lastUtterance: "",
     ts: "",
     dropped: 0,
   });
+  const [isVapiConfigured, setIsVapiConfigured] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const busyRef = useRef(busy);
   const runningRef = useRef(running);
   const speakingRef = useRef(isAssistantSpeaking);
+  const pointerRef = useRef(pointer);
+  const vapiRef = useRef<Vapi | null>(null);
+  const processAnswerRef = useRef<(answer: string, expectedStepId?: ConversationStepId) => Promise<void>>(async () => {});
+  const lastUserUtteranceRef = useRef<{ text: string; stepId: ConversationStepId; ts: number }>({
+    text: "",
+    stepId: pointer.stepId,
+    ts: 0,
+  });
+  const pendingUserAnswerRef = useRef<PendingAnswer | null>(null);
+  const stepRetryCountsRef = useRef<Partial<Record<ConversationStepId, number>>>({});
+
+  const vapiPublicKey = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY?.trim() ?? "";
+  const vapiAssistantId = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID?.trim() ?? "";
+  const hasVapiCredentials = Boolean(vapiPublicKey && vapiAssistantId);
 
   const currentPrompt = useMemo(() => getNextQuestion(pointer, answers), [pointer, answers]);
 
@@ -183,17 +184,111 @@ export default function ConversationRegistrationShell({
     speakingRef.current = isAssistantSpeaking;
   }, [isAssistantSpeaking]);
 
+  useEffect(() => {
+    pointerRef.current = pointer;
+  }, [pointer]);
+
+  useEffect(() => {
+    const pending = pendingUserAnswerRef.current;
+    if (!pending) return;
+    if (pending.stepId === pointer.stepId) return;
+    pendingUserAnswerRef.current = null;
+    console.info("[voice-agent] dropped_stale_answer", `from=${pending.stepId}`, `to=${pointer.stepId}`);
+    setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+  }, [pointer.stepId]);
+
+  const stopAssistantSpeech = useCallback(() => {
+    const vapi = vapiRef.current;
+    if (vapi) {
+      try {
+        vapi.send({ type: "control", control: "mute-assistant" });
+        setTimeout(() => {
+          try {
+            vapi.send({ type: "control", control: "unmute-assistant" });
+          } catch {
+            // noop
+          }
+        }, 120);
+      } catch {
+        // noop
+      }
+    }
+    setIsAssistantSpeaking(false);
+  }, []);
+
   const speakPrompt = useCallback(async (text: string) => {
     const safeText = text.trim();
     if (!safeText) return;
 
+    const vapi = vapiRef.current;
+    if (!vapi || !isVapiConfigured) return;
+
     setIsAssistantSpeaking(true);
-    setVoiceResetSignal((v) => v + 1);
     try {
-      await playPrompt(safeText);
-    } finally {
+      vapi.say(safeText, false, true, true);
+    } catch {
       setIsAssistantSpeaking(false);
-      setVoiceResetSignal((v) => v + 1);
+    }
+  }, [isVapiConfigured]);
+
+  const sendContextToVapi = useCallback((activePointer: ConversationPointer, activeState: RegistrationState) => {
+    const vapi = vapiRef.current;
+    if (!vapi || !runningRef.current) return;
+    const contextMessage = buildVapiContextMessage({
+      pointer: activePointer,
+      state: activeState,
+      assessorId,
+      messages,
+    });
+    vapi.send({
+      type: "add-message",
+      message: {
+        role: "system",
+        content: contextMessage,
+      },
+      triggerResponseEnabled: false,
+    });
+  }, [assessorId, messages]);
+
+  const startVapiSession = useCallback(async () => {
+    if (!hasVapiCredentials) {
+      setMicError("Voice is unavailable: set NEXT_PUBLIC_VAPI_PUBLIC_KEY and NEXT_PUBLIC_VAPI_ASSISTANT_ID.");
+      setIsVapiConfigured(false);
+      return;
+    }
+
+    let vapi = vapiRef.current;
+    if (!vapi) {
+      vapi = new Vapi(vapiPublicKey);
+      vapiRef.current = vapi;
+    }
+    try {
+      await vapi.start(vapiAssistantId);
+      setMicError(null);
+      setIsVapiConfigured(true);
+      vapi.send({
+        type: "add-message",
+        message: {
+          role: "system",
+          content:
+            "For every user utterance, call the function process_registration_turn with JSON arguments: {\"answer\":\"<exact user answer>\"}. Do not run your own independent registration flow.",
+        },
+        triggerResponseEnabled: false,
+      });
+      sendContextToVapi(pointer, answers);
+    } catch {
+      setMicError("Could not start Vapi voice session. You can continue by typing.");
+      setIsVapiConfigured(false);
+    }
+  }, [answers, hasVapiCredentials, pointer, sendContextToVapi, vapiAssistantId, vapiPublicKey]);
+
+  const stopVapiSession = useCallback(async () => {
+    const vapi = vapiRef.current;
+    if (!vapi) return;
+    try {
+      await vapi.stop();
+    } catch {
+      // noop
     }
   }, []);
 
@@ -212,19 +307,45 @@ export default function ConversationRegistrationShell({
   }, [askCurrent, messages.length, running]);
 
   const processAnswer = useCallback(
-    async (rawAnswer: string) => {
+    async (rawAnswer: string, expectedStepId?: ConversationStepId) => {
       const answer = rawAnswer.trim();
+      const activePointer = pointer;
+      const activeStepId = activePointer.stepId;
+
       if (!answer || busy || !running) return;
+      if (expectedStepId && expectedStepId !== activeStepId) {
+        console.info("[voice-agent] dropped_stale_answer", `expected=${expectedStepId}`, `current=${activeStepId}`);
+        setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+        return;
+      }
+      if (activeStepId === "country" && isYesNoLikeUtterance(answer)) {
+        addMessage("system_hint", "Please say the country name, for example India, Pakistan, or United States.");
+        await speakPrompt("Please say the country name, for example India, Pakistan, or United States.");
+        return;
+      }
+      if ((activeStepId === "naics_codes" || activeStepId === "unspsc_codes") && isFillerUtterance(answer)) {
+        const clarification = activeStepId === "naics_codes"
+          ? "Please provide NAICS code or label, for example 72 - Accommodation and Food Services."
+          : "Please provide UNSPSC code or category label, for example Information Technology.";
+        addMessage("system_hint", clarification);
+        await speakPrompt(clarification);
+        return;
+      }
 
       addMessage("user_answer", answer);
-      setHistory((prev) => [...prev, { pointer, answers: structuredClone(answers), assessorId }]);
+      setHistory((prev) => [...prev, { pointer: activePointer, answers: structuredClone(answers), assessorId }]);
       setBusy(true);
 
       try {
         const response = await fetch("/api/register-voice-agent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pointer, answer, state: answers }),
+          body: JSON.stringify({
+            pointer: activePointer,
+            answer,
+            state: answers,
+            turnMeta: { stepRetryCounts: stepRetryCountsRef.current },
+          }),
         });
 
         const data = await response.json();
@@ -234,27 +355,44 @@ export default function ConversationRegistrationShell({
         }
 
         const result = data.result;
+        const mergedAnswers: RegistrationState = {
+          ...answers,
+          ...(result.updates ?? {}),
+          ownership_structure: result.ownershipUpdate ?? answers.ownership_structure,
+        };
+
         if (result.updates || result.ownershipUpdate) {
-          setAnswers((prev) => ({
-            ...prev,
-            ...(result.updates ?? {}),
-            ownership_structure: result.ownershipUpdate ?? prev.ownership_structure,
-          }));
+          setAnswers(mergedAnswers);
         }
 
         if (typeof result.assessorId === "string") {
           setAssessorId(result.assessorId);
         }
 
+        if (!result.ok && result.next.stepId === activeStepId) {
+          const currentRetries = stepRetryCountsRef.current[activeStepId] ?? 0;
+          const nextRetries = currentRetries + 1;
+          stepRetryCountsRef.current = { ...stepRetryCountsRef.current, [activeStepId]: nextRetries };
+          if ((activeStepId === "naics_codes" || activeStepId === "unspsc_codes") && nextRetries >= 2) {
+            console.info("[voice-agent] loop_escalation_shown", `step=${activeStepId}`, `retries=${nextRetries}`);
+          }
+        } else {
+          const retryCopy = { ...stepRetryCountsRef.current };
+          delete retryCopy[activeStepId];
+          stepRetryCountsRef.current = retryCopy;
+        }
+
         addMessage("bot_confirm", result.confirmation);
 
         if (!result.ok && result.clarification) {
+          sendContextToVapi(activePointer, mergedAnswers);
           addMessage("system_hint", result.clarification);
           await speakPrompt(result.clarification);
           return;
         }
 
         setPointer(result.next);
+        sendContextToVapi(result.next, mergedAnswers);
 
         if (result.done) {
           const doneMsg = "Voice steps complete. Review the form, finish payment, then submit registration.";
@@ -264,7 +402,7 @@ export default function ConversationRegistrationShell({
         }
 
         const rawPrompt = typeof data.prompt === "string" ? data.prompt.trim() : "";
-        const nextPrompt = rawPrompt || getNextQuestion(result.next, answers);
+        const nextPrompt = rawPrompt || getNextQuestion(result.next, mergedAnswers);
         addMessage("bot_question", nextPrompt, result.next);
         await speakPrompt(nextPrompt);
       } catch {
@@ -273,18 +411,30 @@ export default function ConversationRegistrationShell({
         setBusy(false);
       }
     },
-    [addMessage, answers, assessorId, busy, pointer, running, setAnswers, setAssessorId, speakPrompt],
+    [
+      addMessage,
+      answers,
+      assessorId,
+      busy,
+      pointer,
+      running,
+      sendContextToVapi,
+      setAnswers,
+      setAssessorId,
+      speakPrompt,
+    ],
   );
 
   const onSubmitTyped = async () => {
     if (!typedAnswer.trim()) return;
     const input = typedAnswer;
     setTypedAnswer("");
-    await processAnswer(input);
+    await processAnswer(input, pointer.stepId);
   };
 
-  const onStartPause = () => {
+  const onStartPause = async () => {
     if (running) {
+      await stopVapiSession();
       setRunning(false);
       return;
     }
@@ -295,6 +445,7 @@ export default function ConversationRegistrationShell({
     }
 
     setRunning(true);
+    await startVapiSession();
   };
 
   const onRepeat = async () => {
@@ -330,28 +481,175 @@ export default function ConversationRegistrationShell({
     await onGoBack();
   };
 
-  const onConfirmVoiceIntro = () => {
+  const onConfirmVoiceIntro = async () => {
     setHasVoiceIntroAccepted(true);
     setIsVoiceIntroOpen(false);
     setRunning(true);
+    await startVapiSession();
   };
 
-  const handleVoiceTranscript = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
-      if (!runningRef.current || busyRef.current || speakingRef.current) {
-        setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+  useEffect(() => {
+    processAnswerRef.current = processAnswer;
+  }, [processAnswer]);
+
+  const submitOrQueueAnswer = useCallback((answer: string) => {
+    const safe = answer.trim();
+    if (!safe || !runningRef.current) return;
+    const stepId = pointerRef.current.stepId;
+    if (busyRef.current) {
+      pendingUserAnswerRef.current = { text: safe, stepId, ts: Date.now() };
+      return;
+    }
+    void processAnswerRef.current(safe, stepId);
+  }, []);
+
+  useEffect(() => {
+    if (busy || !running) return;
+    const pending = pendingUserAnswerRef.current;
+    if (!pending) return;
+    const now = Date.now();
+    const currentStepId = pointerRef.current.stepId;
+    pendingUserAnswerRef.current = null;
+    if (pending.stepId !== currentStepId || now - pending.ts > PENDING_ANSWER_FRESH_MS) {
+      console.info(
+        "[voice-agent] dropped_stale_answer",
+        `pending_step=${pending.stepId}`,
+        `current_step=${currentStepId}`,
+        `age_ms=${now - pending.ts}`,
+      );
+      setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+      return;
+    }
+    console.info("[voice-agent] queued_answer_applied", `step=${pending.stepId}`, `age_ms=${now - pending.ts}`);
+    void processAnswerRef.current(pending.text, pending.stepId);
+  }, [busy, running]);
+
+  useEffect(() => {
+    if (!running) return;
+    sendContextToVapi(pointer, answers);
+  }, [answers, pointer, running, sendContextToVapi]);
+
+  useEffect(() => {
+    if (!hasVapiCredentials) return;
+    if (vapiRef.current) return;
+
+    const vapi = new Vapi(vapiPublicKey);
+    vapiRef.current = vapi;
+
+    vapi.on("call-start", () => {
+      setIsListening(true);
+      setMicError(null);
+      setIsVapiConfigured(true);
+    });
+
+    vapi.on("call-end", () => {
+      setIsListening(false);
+      setIsAssistantSpeaking(false);
+    });
+
+    vapi.on("speech-start", () => {
+      setIsAssistantSpeaking(true);
+      setIsListening(false);
+    });
+
+    vapi.on("speech-end", () => {
+      setIsAssistantSpeaking(false);
+      if (runningRef.current && !busyRef.current) {
+        setIsListening(true);
+      }
+    });
+
+    vapi.on("error", () => {
+      const msg = "Vapi session error. You can continue by typing.";
+      setMicError(msg);
+      addMessage("system_hint", msg);
+      setIsListening(false);
+    });
+
+    vapi.on("message", (message: unknown) => {
+      const toolAnswer = extractProcessRegistrationTurnAnswer(message);
+      if (toolAnswer) {
+        if (!runningRef.current) return;
+        if (speakingRef.current) stopAssistantSpeech();
+        const now = Date.now();
+        const stepId = pointerRef.current.stepId;
+        const normalized = normalizeUtterance(toolAnswer);
+        if (
+          normalized &&
+          normalized === lastUserUtteranceRef.current.text &&
+          stepId === lastUserUtteranceRef.current.stepId &&
+          now - lastUserUtteranceRef.current.ts < 1800
+        ) {
+          return;
+        }
+        // Stale cross-step detection: if the pointer just changed and this
+        // utterance matches the last utterance from a *different* step, it's a
+        // stale replay (old tool-call resurfacing after pointer advance).
+        if (
+          normalized &&
+          normalized === lastUserUtteranceRef.current.text &&
+          stepId !== lastUserUtteranceRef.current.stepId &&
+          now - lastUserUtteranceRef.current.ts < 3000
+        ) {
+          console.info("[voice-agent] dropped_cross_step_stale_tool_answer", `prev=${lastUserUtteranceRef.current.stepId}`, `cur=${stepId}`);
+          setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+          return;
+        }
+        lastUserUtteranceRef.current = { text: normalized, stepId, ts: now };
+        submitOrQueueAnswer(toolAnswer);
         return;
       }
+
+      const transcript = extractFinalUserTranscript(message);
+      if (!transcript) return;
+      if (!runningRef.current) return;
+      if (speakingRef.current) stopAssistantSpeech();
       setVoiceDebug({
-        lastUtterance: text,
+        lastUtterance: transcript,
         ts: new Date().toISOString(),
         dropped: 0,
       });
-      void processAnswer(text);
-    },
-    [processAnswer],
-  );
+      const now = Date.now();
+      const stepId = pointerRef.current.stepId;
+      const normalized = normalizeUtterance(transcript);
+      if (
+        normalized &&
+        normalized === lastUserUtteranceRef.current.text &&
+        stepId === lastUserUtteranceRef.current.stepId &&
+        now - lastUserUtteranceRef.current.ts < 1800
+      ) {
+        return;
+      }
+      // Stale cross-step detection for transcripts: if the pointer just
+      // changed and this utterance is the same as the prior step's last
+      // utterance, drop it as a stale conversation-update replay.
+      if (
+        normalized &&
+        normalized === lastUserUtteranceRef.current.text &&
+        stepId !== lastUserUtteranceRef.current.stepId &&
+        now - lastUserUtteranceRef.current.ts < 3000
+      ) {
+        console.info("[voice-agent] dropped_cross_step_stale_transcript", `prev=${lastUserUtteranceRef.current.stepId}`, `cur=${stepId}`);
+        setVoiceDebug((prev) => ({ ...prev, dropped: prev.dropped + 1 }));
+        return;
+      }
+      lastUserUtteranceRef.current = { text: normalized, stepId, ts: now };
+      submitOrQueueAnswer(transcript);
+    });
+
+    return () => {
+      void vapi.stop();
+      vapi.removeAllListeners();
+      vapiRef.current = null;
+    };
+  }, [hasVapiCredentials, stopAssistantSpeech, submitOrQueueAnswer, vapiPublicKey]);
+
+  useEffect(() => {
+    return () => {
+      stopAssistantSpeech();
+      void stopVapiSession();
+    };
+  }, [stopAssistantSpeech, stopVapiSession]);
 
   const modeLabel =
     interactionState === "success"
@@ -443,6 +741,7 @@ export default function ConversationRegistrationShell({
           setAnswers={setAnswers}
           assessorId={assessorId}
           setAssessorId={setAssessorId}
+          isSubmitting={busy}
         />
       </motion.div>
 
@@ -472,21 +771,20 @@ export default function ConversationRegistrationShell({
         <div>
           <p className="text-xs font-semibold text-gray-700">Answer by voice</p>
           <p className="text-xs text-gray-500">
-            Listening continuously while voice session is active. Use Pause above to stop.
+            Powered by Vapi with real-time interruption. Use Pause above to stop voice session.
           </p>
         </div>
-        <VoiceInput
-          placeholder="Voice session paused"
-          sessionActive={running}
-          suspended={busy || isAssistantSpeaking}
-          resetSignal={voiceResetSignal}
-          onSessionError={(error) => {
-            setMicError(error);
-            addMessage("system_hint", error);
-          }}
-          onListeningStateChange={setIsListening}
-          onFinalTranscript={handleVoiceTranscript}
-        />
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            "voice-pill text-[11px] font-semibold",
+            isVapiConfigured ? "voice-pill-live" : "voice-pill-idle",
+          )}>
+            {isVapiConfigured ? "Vapi Connected" : "Vapi Not Configured"}
+          </span>
+          {!hasVapiCredentials && (
+            <span className="text-[11px] text-amber-700">Set `NEXT_PUBLIC_VAPI_PUBLIC_KEY` and `NEXT_PUBLIC_VAPI_ASSISTANT_ID`.</span>
+          )}
+        </div>
       </motion.div>
 
       <motion.div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2" layout={!prefersReducedMotion}>

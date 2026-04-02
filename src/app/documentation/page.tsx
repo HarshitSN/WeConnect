@@ -5,7 +5,7 @@ import Navbar from "@/components/layout/Navbar";
 const DOCS = [
   { icon: FileText, color: "bg-blue-100 text-brand-blue",     tag: "Core",       title: "Product Requirements (PRD)",   desc: "Full product specification for WEConnect Phase 1, including user stories and acceptance criteria." },
   { icon: Settings, color: "bg-gray-100 text-gray-600",       tag: "Technical",  title: "Configuration",                desc: "Platform configuration guide — environment variables, feature flags, and integration settings." },
-  { icon: FileText, color: "bg-purple-100 text-brand-purple", tag: "Business",   title: "Configuration BRD",            desc: "Business Requirements Document outlining stakeholder needs and system requirements." },
+  { icon: FileText, color: "bg-amber-100 text-brand-purple", tag: "Business",   title: "Configuration BRD",            desc: "Business Requirements Document outlining stakeholder needs and system requirements." },
   { icon: FileText, color: "bg-blue-100 text-brand-blue",     tag: "Core",       title: "Configuration PRD",            desc: "Product requirements scoped to platform configuration and administrative functions." },
   { icon: Cpu,      color: "bg-green-100 text-green-600",     tag: "Technical",  title: "Architecture",                 desc: "System architecture — service topology, data flows, Supabase + QID blockchain integration." },
   { icon: Network,  color: "bg-amber-100 text-amber-600",     tag: "Buyer",      title: "Buyer Portal",                 desc: "Buyer-facing portal documentation — search, filtering, supplier profiles, and RFP workflows." },

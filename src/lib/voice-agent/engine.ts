@@ -19,6 +19,10 @@ import {
   parseYesNo,
 } from "@/lib/voice-agent/normalizers";
 
+export interface ParseStepRuntimeMeta {
+  stepRetryCounts?: Partial<Record<ConversationStepId, number>>;
+}
+
 export function getNextQuestion(pointer: ConversationPointer, state: RegistrationState): string {
   const total = state.ownership_structure.reduce((sum, e) => sum + Number(e.percent || 0), 0);
   const ownerIndex = pointer.ownerIndex ?? 0;
@@ -129,10 +133,12 @@ export function parseStepAnswer(
   pointerState: ConversationPointer,
   answer: string,
   state: RegistrationState,
+  runtimeMeta?: ParseStepRuntimeMeta,
 ): AgentParseResult {
   const step = pointerState.stepId;
   const ownerIndex = pointerState.ownerIndex ?? 0;
   const safeAnswer = answer.trim();
+  const retryCount = runtimeMeta?.stepRetryCounts?.[step] ?? 0;
 
   if (!safeAnswer && step !== "additional_certs") {
     return {
@@ -225,11 +231,14 @@ export function parseStepAnswer(
     case "naics_codes": {
       const codes = parseNaicsCodes(safeAnswer);
       if (!codes.length) {
+        const shouldEscalate = retryCount >= 1;
         return {
           ok: false,
-          confidence: 0.25,
+          confidence: shouldEscalate ? 0.2 : 0.25,
           confirmation: "I could not find a NAICS code from that response.",
-          clarification: `Please provide NAICS code or industry label like ${NAICS_CODES[0].label}.`,
+          clarification: shouldEscalate
+            ? "Try one of these now: say exactly 'NAICS 72', or say 'Accommodation and Food Services'. For pizza/restaurant businesses, 72 is commonly correct. I will only save it when you explicitly confirm the code or label."
+            : "Please provide NAICS sector code or label, for example 72 - Accommodation and Food Services (common for pizza/restaurant businesses).",
           next: pointer("naics_codes"),
         };
       }
@@ -244,11 +253,14 @@ export function parseStepAnswer(
     case "unspsc_codes": {
       const codes = parseUnspscCodes(safeAnswer);
       if (!codes.length) {
+        const shouldEscalate = retryCount >= 1;
         return {
           ok: false,
-          confidence: 0.25,
+          confidence: shouldEscalate ? 0.2 : 0.25,
           confirmation: "I could not find a UNSPSC category from that response.",
-          clarification: `Please provide UNSPSC code or category label like ${UNSPSC_CODES[18].label}.`,
+          clarification: shouldEscalate
+            ? `Try one of these now: say exactly 'UNSPSC 43000000' (Information Technology) or '${UNSPSC_CODES[18].label}'. I will only save it when you explicitly confirm the code or label.`
+            : `Please provide UNSPSC code or category label like ${UNSPSC_CODES[18].label}.`,
           next: pointer("unspsc_codes"),
         };
       }

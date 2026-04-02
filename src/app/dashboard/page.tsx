@@ -156,14 +156,14 @@ export default function DashboardPage() {
               <Star size={15} className="text-gray-400" />
               <h2 className="font-semibold text-gray-900">Choose Your Certification</h2>
             </div>
-            <span className="text-xs font-semibold text-brand-purple bg-purple-50 border border-purple-100 px-3 py-1 rounded-full">
+            <span className="text-xs font-semibold text-brand-purple bg-amber-50 border border-amber-100 px-3 py-1 rounded-full">
               Not Linear — Pick What Fits Your Business
             </span>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
             {/* Self-cert */}
-            <div className="cert-card border-purple-200 rounded-2xl border-2 p-6">
+            <div className="cert-card border-amber-200 rounded-2xl border-2 p-6">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Lock size={15} className="text-gray-400" />
@@ -179,14 +179,14 @@ export default function DashboardPage() {
                 ))}
               </ul>
               <Link href="/certify?type=self">
-                <button disabled={!verifyDone} className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all ${verifyDone ? "bg-brand-purple text-white border-brand-purple hover:bg-purple-700" : "bg-white text-gray-300 border-gray-200 cursor-not-allowed"}`}>
+                <button disabled={!verifyDone} className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all ${verifyDone ? "bg-brand-purple text-white border-brand-purple hover:bg-amber-600" : "bg-white text-gray-300 border-gray-200 cursor-not-allowed"}`}>
                   <Lock size={13} />{verifyDone ? "Choose Self-Certification" : "Complete Verification First"}
                 </button>
               </Link>
             </div>
 
             {/* Digital cert */}
-            <div className="relative rounded-2xl border-2 border-purple-300 bg-purple-50/30 p-6">
+            <div className="relative rounded-2xl border-2 border-amber-300 bg-amber-50/30 p-6">
               <div className="absolute -top-3 right-4">
                 <span className="bg-amber-400 text-amber-900 text-xs font-bold px-3 py-1 rounded-full">⭐ Recommended</span>
               </div>
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                 ))}
               </ul>
               <Link href="/certify?type=digital">
-                <button disabled={!verifyDone} className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all ${verifyDone ? "bg-brand-purple text-white border-brand-purple hover:bg-purple-700" : "bg-white text-gray-300 border-gray-200 cursor-not-allowed"}`}>
+                <button disabled={!verifyDone} className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-all ${verifyDone ? "bg-brand-purple text-white border-brand-purple hover:bg-amber-600" : "bg-white text-gray-300 border-gray-200 cursor-not-allowed"}`}>
                   <Lock size={13} />{verifyDone ? "Choose Digital Certification" : "Complete Verification First"}
                 </button>
               </Link>

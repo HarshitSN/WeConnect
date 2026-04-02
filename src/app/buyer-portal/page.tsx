@@ -149,7 +149,7 @@ export default function BuyerPortalPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
-                  {s.designations.map(d => <span key={d} className="badge bg-purple-50 text-brand-purple border border-purple-100">{d}</span>)}
+                  {s.designations.map(d => <span key={d} className="badge bg-amber-50 text-brand-purple border border-amber-100">{d}</span>)}
                   <span className={cn("badge border", s.cert_type === "digital" ? "bg-blue-50 text-brand-blue border-blue-100" : "bg-gray-50 text-gray-600 border-gray-100")}>
                     {getCertTypeLabel(s.cert_type)}
                   </span>
@@ -207,7 +207,7 @@ export default function BuyerPortalPage() {
                 <div>
                   <p className="text-xs font-semibold text-gray-500 mb-2">Designations</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {supplier.designations.map(d => <span key={d} className="badge bg-purple-50 text-brand-purple">{d}</span>)}
+                    {supplier.designations.map(d => <span key={d} className="badge bg-amber-50 text-brand-purple">{d}</span>)}
                   </div>
                 </div>
 
