@@ -4,7 +4,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        brand: { blue: "#2563EB", purple: "#7C3AED", indigo: "#4F46E5", green: "#059669" },
+        brand: { blue: "#2563EB", slate: "#0F172A", zinc: "#18181B", green: "#059669" },
         surface: { DEFAULT: "#F8FAFC", card: "#FFFFFF", muted: "#F1F5F9" },
       },
       fontFamily: {
@@ -12,8 +12,8 @@ const config: Config = {
         display: ["'Bricolage Grotesque'", "sans-serif"],
       },
       backgroundImage: {
-        "hero-gradient": "linear-gradient(135deg,#EEF2FF 0%,#F0F9FF 50%,#FAF5FF 100%)",
-        "banner-gradient": "linear-gradient(135deg,#4F46E5 0%,#7C3AED 50%,#A855F7 100%)",
+        "hero-gradient": "linear-gradient(135deg,#F1F5F9 0%,#F8FAFC 50%,#FFFFFF 100%)",
+        "banner-gradient": "linear-gradient(135deg,#1E293B 0%,#0F172A 50%,#020617 100%)",
       },
       keyframes: {
         fadeIn: { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
@@ -23,14 +23,14 @@ const config: Config = {
           "50%": { transform: "scale(1.08)", opacity: "1" },
         },
         orbSpeak: {
-          "0%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(124,58,237,0.4)" },
-          "50%": { transform: "scale(1.12)", boxShadow: "0 0 0 12px rgba(124,58,237,0)" },
-          "100%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(124,58,237,0)" },
+          "0%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(37,99,235,0.2)" },
+          "50%": { transform: "scale(1.05)", boxShadow: "0 0 0 8px rgba(37,99,235,0)" },
+          "100%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(37,99,235,0)" },
         },
         orbListen: {
-          "0%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(5,150,105,0.4)" },
-          "50%": { transform: "scale(1.06)", boxShadow: "0 0 0 10px rgba(5,150,105,0)" },
-          "100%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(5,150,105,0)" },
+          "0%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(15,23,42,0.1)" },
+          "50%": { transform: "scale(1.03)", boxShadow: "0 0 0 6px rgba(15,23,42,0)" },
+          "100%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(15,23,42,0)" },
         },
         slideInLeft: {
           "0%": { opacity: "0", transform: "translateX(-16px)" },

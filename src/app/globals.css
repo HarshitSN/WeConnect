@@ -10,9 +10,9 @@
   --motion-duration-slow: 520ms;
   --motion-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-ease-gentle: cubic-bezier(0.16, 1, 0.3, 1);
-  --depth-glow-soft: 0 10px 28px rgba(79, 70, 229, 0.12);
-  --depth-glow-strong: 0 18px 44px rgba(79, 70, 229, 0.2);
-  --surface-gradient-calm: linear-gradient(130deg, rgba(255, 255, 255, 0.88) 0%, rgba(241, 245, 255, 0.82) 100%);
+  --depth-glow-soft: 0 4px 12px rgba(15, 23, 42, 0.05);
+  --depth-glow-strong: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --surface-gradient-calm: linear-gradient(130deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
 }
 
 @layer base {
@@ -25,7 +25,7 @@
   /* Buttons */
   .btn-primary   { @apply inline-flex items-center gap-2 bg-gray-900 text-white font-semibold px-6 py-3 rounded-xl hover:bg-gray-800 active:scale-[0.98] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed; }
   .btn-blue      { @apply inline-flex items-center justify-center gap-2 bg-brand-blue text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-blue-700 active:scale-[0.98] transition-all duration-150 w-full disabled:opacity-40 disabled:cursor-not-allowed; }
-  .btn-purple    { @apply inline-flex items-center justify-center gap-2 bg-brand-purple text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-purple-700 active:scale-[0.98] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-dark      { @apply inline-flex items-center justify-center gap-2 bg-brand-slate text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 active:scale-[0.98] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed; }
   .btn-outline   { @apply inline-flex items-center gap-2 bg-white text-gray-700 font-medium px-5 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 active:scale-[0.98] transition-all duration-150; }
   .btn-danger    { @apply inline-flex items-center gap-2 bg-red-600 text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-red-700 active:scale-[0.98] transition-all duration-150; }
 
@@ -66,7 +66,7 @@
 
   /* Sidebar */
   .sidebar-link       { @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-all; }
-  .sidebar-link-active { @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-brand-indigo/10 text-brand-indigo; }
+  .sidebar-link-active { @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-slate-100 text-slate-900; }
 
   /* Table */
   .table-th { @apply text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3 text-left; }
@@ -117,11 +117,11 @@
     transition: all var(--motion-duration-base) var(--motion-ease-standard);
   }
 
-  .interaction-state-idle { @apply bg-slate-50/70 ring-slate-200; }
-  .interaction-state-listening { @apply bg-emerald-50/80 ring-emerald-200; }
-  .interaction-state-speaking { @apply bg-violet-50/80 ring-violet-200; }
-  .interaction-state-processing { @apply bg-sky-50/80 ring-sky-200; }
-  .interaction-state-success { @apply bg-green-50/80 ring-green-200; }
+  .interaction-state-idle { @apply bg-white ring-slate-200 border border-slate-200; }
+  .interaction-state-listening { @apply bg-slate-50 ring-slate-300 border border-slate-300; }
+  .interaction-state-speaking { @apply bg-blue-50 ring-blue-200 border border-blue-200; }
+  .interaction-state-processing { @apply bg-slate-100 ring-slate-300 border border-slate-200; }
+  .interaction-state-success { @apply bg-zinc-50 ring-zinc-200 border border-zinc-200; }
 }
 
 @keyframes fadeOut {

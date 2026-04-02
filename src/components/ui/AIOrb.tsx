@@ -7,29 +7,29 @@ export type OrbState = "idle" | "speaking" | "listening" | "processing" | "succe
 
 const stateConfig: Record<OrbState, { gradient: string; label: string; halo: string }> = {
   idle: {
-    gradient: "from-blue-400 to-indigo-500",
+    gradient: "from-slate-200 to-slate-400",
     label: "Ready",
-    halo: "rgba(59,130,246,0.32)",
+    halo: "rgba(100,116,139,0.32)",
   },
   speaking: {
-    gradient: "from-purple-500 to-fuchsia-500",
+    gradient: "from-sky-400 to-blue-500",
     label: "Speaking",
-    halo: "rgba(168,85,247,0.4)",
+    halo: "rgba(59,130,246,0.4)",
   },
   listening: {
-    gradient: "from-emerald-400 to-teal-500",
+    gradient: "from-slate-600 to-zinc-700",
     label: "Listening",
-    halo: "rgba(16,185,129,0.35)",
+    halo: "rgba(82,82,91,0.35)",
   },
   processing: {
-    gradient: "from-sky-500 to-indigo-500",
+    gradient: "from-slate-300 to-slate-500",
     label: "Processing",
-    halo: "rgba(14,165,233,0.35)",
+    halo: "rgba(148,163,184,0.35)",
   },
   success: {
-    gradient: "from-green-400 to-emerald-600",
+    gradient: "from-green-500 to-emerald-600",
     label: "Ready To Submit",
-    halo: "rgba(34,197,94,0.35)",
+    halo: "rgba(16,185,129,0.35)",
   },
 };
 
