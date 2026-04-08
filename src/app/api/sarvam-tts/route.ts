@@ -12,8 +12,16 @@ interface TtsCacheEntry {
   expiresAt: number;
 }
 
-const TTS_TIMEOUT_MS = 8000;
-const TTS_MAX_ATTEMPTS = 2;
+const FAST_VOICE_MODE = /^(1|true|yes)$/i.test(process.env.FAST_VOICE_MODE ?? "");
+
+function getPositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const TTS_TIMEOUT_MS = getPositiveInt(process.env.SARVAM_TTS_TIMEOUT_MS, FAST_VOICE_MODE ? 3000 : 8000);
+const TTS_MAX_ATTEMPTS = getPositiveInt(process.env.SARVAM_TTS_MAX_ATTEMPTS, FAST_VOICE_MODE ? 1 : 2);
 const TTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const ttsCache = new Map<string, TtsCacheEntry>();
 

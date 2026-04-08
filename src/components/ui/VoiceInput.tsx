@@ -6,23 +6,24 @@ import { createVADState, stepVAD, type VADConfig } from "@/lib/voice-agent/vad";
 import { isNoiseLikeTranscript, shouldDropSegment, type SegmentDropReason } from "@/lib/voice-agent/voice-input-policy";
 
 /* ─── constants ─── */
+const FAST_VOICE_MODE = /^(1|true|yes)$/i.test(process.env.NEXT_PUBLIC_FAST_VOICE_MODE ?? "");
 const ANALYSIS_INTERVAL_MS = 100;  // VAD poll interval
 const VAD_MIN_RMS_BASE = 0.012;
 const VAD_NOISE_MULTIPLIER = 2.4;
-const VAD_ONSET_FRAMES_REQUIRED = 3;
+const VAD_ONSET_FRAMES_REQUIRED = FAST_VOICE_MODE ? 2 : 3;
 const VAD_RELEASE_FRAMES_REQUIRED = 2;
 const VAD_BARGEIN_COOLDOWN_MS = 1500;
-const SILENCE_DURATION_MS = 1800;  // 1.8s of silence after speech → commit
+const SILENCE_DURATION_MS = FAST_VOICE_MODE ? 700 : 1800;  // low-latency commit in fast mode
 const VAD_NOISE_FLOOR_ALPHA = 0.92;
 const VAD_NOISE_FLOOR_MARGIN = 0.85;
 const VAD_MIN_SPEECH_BAND_RATIO = 0.30;
 const VAD_MIN_ZCR = 0.015;
 const VAD_MAX_ZCR = 0.22;
 const VAD_MAX_ACTIVE_SPEECH_MS = 8000;
-const VAD_MAX_IDLE_RECORDING_MS = 7000;
+const VAD_MAX_IDLE_RECORDING_MS = FAST_VOICE_MODE ? 4500 : 7000;
 const MIN_IDLE_ROTATE_QUALIFIED_FRAMES = 3;
-const MIN_STT_QUALIFIED_VOICED_FRAMES = 3;
-const MIN_STT_QUALIFIED_SPEECH_MS = 300;
+const MIN_STT_QUALIFIED_VOICED_FRAMES = FAST_VOICE_MODE ? 2 : 3;
+const MIN_STT_QUALIFIED_SPEECH_MS = FAST_VOICE_MODE ? 180 : 300;
 const PRE_SPEECH_THRESHOLD_MULTIPLIER = 0.82;
 const PRE_SPEECH_BAND_RATIO_MULTIPLIER = 0.78;
 const PRE_SPEECH_MIN_ZCR = 0.01;
