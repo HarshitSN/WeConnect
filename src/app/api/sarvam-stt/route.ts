@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server'
 
+const STT_TIMEOUT_MS = 8000
+const STT_MAX_ATTEMPTS = 2
+
+function isTransientStatus(status: number): boolean {
+  return status === 429 || status >= 500
+}
+
 export async function POST(request: Request) {
+  const startedAt = Date.now()
+  let timedOut = false
+  let attempts = 0
+
   try {
     const formData = await request.formData()
     const audio = formData.get('audio') as Blob
@@ -21,54 +32,104 @@ export async function POST(request: Request) {
       )
     }
 
-    // Sarvam rejects MIME types like "audio/webm;codecs=opus" — strip codec params
     const cleanType = (audio.type || 'audio/webm').split(';')[0].trim() || 'audio/webm'
     const cleanBlob = new Blob([await audio.arrayBuffer()], { type: cleanType })
 
-    const upstreamFormData = new FormData()
-    upstreamFormData.append('file', cleanBlob, 'recording.webm')
-    upstreamFormData.append('model', 'saaras:v3')
-    upstreamFormData.append('mode', 'transcribe')
-    upstreamFormData.append('language_code', languageCode)
-    upstreamFormData.append('with_timestamps', 'false')
+    let lastErrorStatus = 502
+    let lastErrorText = 'Unknown STT error'
 
-    const response = await fetch('https://api.sarvam.ai/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'API-Subscription-Key': sarvamApiKey,
-      },
-      body: upstreamFormData,
-    })
+    for (let attempt = 1; attempt <= STT_MAX_ATTEMPTS; attempt += 1) {
+      attempts = attempt
+      const upstreamFormData = new FormData()
+      upstreamFormData.append('file', cleanBlob, 'recording.webm')
+      upstreamFormData.append('model', 'saaras:v3')
+      upstreamFormData.append('mode', 'transcribe')
+      upstreamFormData.append('language_code', languageCode)
+      upstreamFormData.append('with_timestamps', 'false')
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.warn('[sarvam-stt] upstream error:', response.status, errorText)
-      return NextResponse.json(
-        {
-          ok: false,
-          error: {
-            code: 'SARVAM_STT_FAILED',
-            message: 'Speech to text failed',
-            details: errorText,
+      const controller = new AbortController()
+      const timeout = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, STT_TIMEOUT_MS)
+
+      try {
+        const response = await fetch('https://api.sarvam.ai/speech-to-text', {
+          method: 'POST',
+          headers: {
+            'API-Subscription-Key': sarvamApiKey,
           },
-        },
-        { status: response.status },
-      )
+          body: upstreamFormData,
+          signal: controller.signal,
+        })
+
+        clearTimeout(timeout)
+
+        if (response.ok) {
+          const data = await response.json()
+          const transcript = (data.transcript ?? '').trim()
+
+          return NextResponse.json({
+            ok: true,
+            transcript,
+            languageCode: data.language_code || languageCode,
+            timestamp: new Date().toISOString(),
+            latencyMs: Date.now() - startedAt,
+            timedOut,
+            attempts,
+          })
+        }
+
+        const errorText = await response.text()
+        lastErrorStatus = response.status
+        lastErrorText = errorText
+
+        if (!isTransientStatus(response.status) || attempt === STT_MAX_ATTEMPTS) {
+          break
+        }
+      } catch (error) {
+        clearTimeout(timeout)
+
+        const isAbort = error instanceof Error && error.name === 'AbortError'
+        if (!isAbort) {
+          lastErrorText = error instanceof Error ? error.message : 'Unknown fetch failure'
+        } else {
+          lastErrorText = `Timeout after ${STT_TIMEOUT_MS}ms`
+        }
+
+        lastErrorStatus = 504
+
+        if (!isAbort || attempt === STT_MAX_ATTEMPTS) {
+          break
+        }
+      }
     }
 
-    const data = await response.json()
-    const transcript = (data.transcript ?? '').trim()
-
-    return NextResponse.json({
-      ok: true,
-      transcript,
-      languageCode: data.language_code || languageCode,
-      timestamp: new Date().toISOString(),
-    })
+    console.warn('[sarvam-stt] upstream error:', lastErrorStatus, lastErrorText)
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'SARVAM_STT_FAILED',
+          message: 'Speech to text failed',
+          details: lastErrorText,
+        },
+        latencyMs: Date.now() - startedAt,
+        timedOut,
+        attempts,
+      },
+      { status: lastErrorStatus },
+    )
   } catch (error) {
     console.error('Error in sarvam-stt API route:', error)
     return NextResponse.json(
-      { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
+      {
+        ok: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+        latencyMs: Date.now() - startedAt,
+        timedOut,
+        attempts,
+      },
       { status: 500 },
     )
   }

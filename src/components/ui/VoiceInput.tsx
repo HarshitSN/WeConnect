@@ -2,12 +2,93 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
+import { createVADState, stepVAD, type VADConfig } from "@/lib/voice-agent/vad";
+import { isNoiseLikeTranscript, shouldDropSegment, type SegmentDropReason } from "@/lib/voice-agent/voice-input-policy";
 
 /* ─── constants ─── */
-const SILENCE_THRESHOLD = 0.012;   // RMS below this = silence
-const SILENCE_DURATION_MS = 1800;  // 1.8s of silence after speech → commit
 const ANALYSIS_INTERVAL_MS = 100;  // VAD poll interval
+const VAD_MIN_RMS_BASE = 0.012;
+const VAD_NOISE_MULTIPLIER = 2.4;
+const VAD_ONSET_FRAMES_REQUIRED = 3;
+const VAD_RELEASE_FRAMES_REQUIRED = 2;
+const VAD_BARGEIN_COOLDOWN_MS = 1500;
+const SILENCE_DURATION_MS = 1800;  // 1.8s of silence after speech → commit
+const VAD_NOISE_FLOOR_ALPHA = 0.92;
+const VAD_NOISE_FLOOR_MARGIN = 0.85;
+const VAD_MIN_SPEECH_BAND_RATIO = 0.30;
+const VAD_MIN_ZCR = 0.015;
+const VAD_MAX_ZCR = 0.22;
+const VAD_MAX_ACTIVE_SPEECH_MS = 8000;
+const VAD_MAX_IDLE_RECORDING_MS = 7000;
+const MIN_IDLE_ROTATE_QUALIFIED_FRAMES = 3;
+const MIN_STT_QUALIFIED_VOICED_FRAMES = 3;
+const MIN_STT_QUALIFIED_SPEECH_MS = 300;
+const PRE_SPEECH_THRESHOLD_MULTIPLIER = 0.82;
+const PRE_SPEECH_BAND_RATIO_MULTIPLIER = 0.78;
+const PRE_SPEECH_MIN_ZCR = 0.01;
+const PRE_SPEECH_MAX_ZCR = 0.28;
+const PRE_SPEECH_FRAMES_REQUIRED = 2;
+const PRE_BARGEIN_COOLDOWN_MS = 900;
 const DEDUP_WINDOW_MS = 2500;
+
+const VAD_CONFIG: VADConfig = {
+  analysisIntervalMs: ANALYSIS_INTERVAL_MS,
+  minRmsBase: VAD_MIN_RMS_BASE,
+  noiseMultiplier: VAD_NOISE_MULTIPLIER,
+  onsetFramesRequired: VAD_ONSET_FRAMES_REQUIRED,
+  releaseFramesRequired: VAD_RELEASE_FRAMES_REQUIRED,
+  bargeInCooldownMs: VAD_BARGEIN_COOLDOWN_MS,
+  silenceDurationMs: SILENCE_DURATION_MS,
+  noiseFloorAlpha: VAD_NOISE_FLOOR_ALPHA,
+  noiseFloorMargin: VAD_NOISE_FLOOR_MARGIN,
+  minSpeechBandRatio: VAD_MIN_SPEECH_BAND_RATIO,
+  minZcr: VAD_MIN_ZCR,
+  maxZcr: VAD_MAX_ZCR,
+  maxActiveSpeechMs: VAD_MAX_ACTIVE_SPEECH_MS,
+  maxIdleRecordingMs: VAD_MAX_IDLE_RECORDING_MS,
+  minIdleRotateQualifiedFrames: MIN_IDLE_ROTATE_QUALIFIED_FRAMES,
+  preSpeechThresholdMultiplier: PRE_SPEECH_THRESHOLD_MULTIPLIER,
+  preSpeechBandRatioMultiplier: PRE_SPEECH_BAND_RATIO_MULTIPLIER,
+  preSpeechMinZcr: PRE_SPEECH_MIN_ZCR,
+  preSpeechMaxZcr: PRE_SPEECH_MAX_ZCR,
+  preSpeechFramesRequired: PRE_SPEECH_FRAMES_REQUIRED,
+  preBargeInCooldownMs: PRE_BARGEIN_COOLDOWN_MS,
+};
+
+function computeZcr(samples: Float32Array): number {
+  if (samples.length < 2) return 0;
+  let crossings = 0;
+  let prev = samples[0] ?? 0;
+  for (let i = 1; i < samples.length; i += 1) {
+    const curr = samples[i] ?? 0;
+    if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) crossings += 1;
+    prev = curr;
+  }
+  return crossings / (samples.length - 1);
+}
+
+function computeSpeechBandRatio(freqDb: Float32Array, sampleRate: number, fftSize: number): number {
+  if (!freqDb.length || sampleRate <= 0 || fftSize <= 0) return 0;
+
+  const hzPerBin = sampleRate / fftSize;
+  const lowBin = Math.max(1, Math.floor(250 / hzPerBin));
+  const highBin = Math.min(freqDb.length - 1, Math.ceil(3800 / hzPerBin));
+
+  let total = 0;
+  let speech = 0;
+
+  for (let i = 1; i < freqDb.length; i += 1) {
+    const db = Number.isFinite(freqDb[i]) ? freqDb[i] : -120;
+    const power = Math.pow(10, db / 10);
+    total += power;
+    if (i >= lowBin && i <= highBin) {
+      speech += power;
+    }
+  }
+
+  if (total <= 0) return 0;
+  return speech / total;
+}
 
 export default function VoiceInput({
   sessionActive,
@@ -41,16 +122,24 @@ export default function VoiceInput({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sampleBufRef = useRef<Float32Array | null>(null);
+  const freqBufRef = useRef<Float32Array | null>(null);
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // state tracking refs
-  const hasSpeechRef = useRef(false);       // did we detect any speech in this recording?
-  const silentSinceRef = useRef<number | null>(null);
-  const recordStartRef = useRef(0);
+  const hasSpeechRef = useRef(false);
+  const vadStateRef = useRef(createVADState(0.003, Date.now()));
   const lastSubmittedRef = useRef({ text: "", ts: 0 });
+  const segmentDropReasonRef = useRef<SegmentDropReason>("none");
+  const recordingStartedAtRef = useRef(0);
+  const frameCountRef = useRef(0);
+  const rmsSumRef = useRef(0);
+  const speechBandSumRef = useRef(0);
+  const zcrSumRef = useRef(0);
+  const preSpeechTriggeredRef = useRef(false);
+  const preSpeechTsRef = useRef<number | null>(null);
+  const speechConfirmTsRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
-  /* ── notify parent ── */
   const setRecState = useCallback(
     (v: boolean) => {
       setIsRecording(v);
@@ -59,7 +148,6 @@ export default function VoiceInput({
     [onListeningStateChange],
   );
 
-  /* ── get or create mic stream ── */
   const ensureStream = useCallback(async () => {
     if (streamRef.current?.active) return streamRef.current;
     try {
@@ -79,23 +167,23 @@ export default function VoiceInput({
     }
   }, [onSessionError]);
 
-  /* ── ensure AudioContext + AnalyserNode ── */
   const ensureAnalyser = useCallback((stream: MediaStream) => {
     if (analyserRef.current && audioCtxRef.current?.state !== "closed") return;
     const ctx = new AudioContext();
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.2;
     source.connect(analyser);
     audioCtxRef.current = ctx;
     analyserRef.current = analyser;
     sampleBufRef.current = new Float32Array(analyser.fftSize);
+    freqBufRef.current = new Float32Array(analyser.frequencyBinCount);
   }, []);
 
-  /* ── send blob to Sarvam STT ── */
   const transcribeBlob = useCallback(
     async (blob: Blob): Promise<string | null> => {
-      if (blob.size < 1000) return null; // too small
+      if (blob.size < 1000) return null;
       setIsSending(true);
       try {
         const fd = new FormData();
@@ -104,10 +192,17 @@ export default function VoiceInput({
         const res = await fetch("/api/sarvam-stt", { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok || !data.ok) {
-          console.warn("[VoiceInput] STT error:", data?.error?.message);
+          console.warn("[VoiceInput] STT error:", data?.error?.message, data?.attempts, data?.timedOut);
           return null;
         }
-        return (data.transcript || "").trim() || null;
+
+        const transcript = (data.transcript || "").trim();
+        if (isNoiseLikeTranscript(transcript)) {
+          console.log("[VoiceInput] Dropping noise-like transcript:", transcript);
+          return null;
+        }
+
+        return transcript;
       } catch (err) {
         console.warn("[VoiceInput] STT fetch error:", err);
         return null;
@@ -118,7 +213,6 @@ export default function VoiceInput({
     [languageCode],
   );
 
-  /* ── stop VAD polling ── */
   const stopVAD = useCallback(() => {
     if (vadTimerRef.current !== null) {
       clearInterval(vadTimerRef.current);
@@ -126,7 +220,6 @@ export default function VoiceInput({
     }
   }, []);
 
-  /* ── stop & discard current recording without transcribing ── */
   const discardRecording = useCallback(() => {
     stopVAD();
     const rec = recorderRef.current;
@@ -138,18 +231,25 @@ export default function VoiceInput({
     recorderRef.current = null;
     chunksRef.current = [];
     hasSpeechRef.current = false;
-    silentSinceRef.current = null;
+    vadStateRef.current = createVADState(0.003, Date.now());
+    segmentDropReasonRef.current = "none";
+    recordingStartedAtRef.current = 0;
+    frameCountRef.current = 0;
+    rmsSumRef.current = 0;
+    speechBandSumRef.current = 0;
+    zcrSumRef.current = 0;
+    preSpeechTriggeredRef.current = false;
+    preSpeechTsRef.current = null;
+    speechConfirmTsRef.current = null;
     setRecState(false);
   }, [setRecState, stopVAD]);
 
-  /* ── the main record → detect silence → transcribe → restart loop ── */
   const runRecordLoop = useCallback(
     async (stream: MediaStream) => {
       if (!mountedRef.current) return;
 
       ensureAnalyser(stream);
 
-      // pick mime type
       const mimeType = typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
@@ -160,57 +260,113 @@ export default function VoiceInput({
       recorderRef.current = recorder;
       chunksRef.current = [];
       hasSpeechRef.current = false;
-      silentSinceRef.current = null;
+      segmentDropReasonRef.current = "none";
+      const startMs = Date.now();
+      recordingStartedAtRef.current = startMs;
+      frameCountRef.current = 0;
+      rmsSumRef.current = 0;
+      speechBandSumRef.current = 0;
+      zcrSumRef.current = 0;
+      preSpeechTriggeredRef.current = false;
+      preSpeechTsRef.current = null;
+      speechConfirmTsRef.current = null;
+      vadStateRef.current = createVADState(0.003, startMs);
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      // start recording
-      recorder.start(300); // collect data every 300ms
-      recordStartRef.current = Date.now();
+      recorder.start(300);
       setRecState(true);
       setError(null);
 
-      console.log("[VoiceInput] Recording started, waiting for speech...");
-
-      // start VAD polling
       stopVAD();
       vadTimerRef.current = setInterval(() => {
         const analyser = analyserRef.current;
         const buf = sampleBufRef.current;
-        if (!analyser || !buf) return;
+        const freqBuf = freqBufRef.current;
+        const audioCtx = audioCtxRef.current;
+        if (!analyser || !buf || !freqBuf || !audioCtx) return;
 
         analyser.getFloatTimeDomainData(buf as Float32Array<ArrayBuffer>);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-        const rms = Math.sqrt(sum / buf.length);
+        analyser.getFloatFrequencyData(freqBuf as Float32Array<ArrayBuffer>);
 
-        if (rms >= SILENCE_THRESHOLD) {
-          // speech detected
-          if (!hasSpeechRef.current) {
-            console.log("[VoiceInput] Speech detected (RMS:", rms.toFixed(4), ")");
-            onSpeechStart?.();
+        let sum = 0;
+        for (let i = 0; i < buf.length; i += 1) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        const speechBandRatio = computeSpeechBandRatio(freqBuf, audioCtx.sampleRate, analyser.fftSize);
+        const zcr = computeZcr(buf);
+        frameCountRef.current += 1;
+        rmsSumRef.current += rms;
+        speechBandSumRef.current += speechBandRatio;
+        zcrSumRef.current += zcr;
+
+        const event = stepVAD(
+          vadStateRef.current,
+          { rms, speechBandRatio, zcr },
+          Date.now(),
+          VAD_CONFIG,
+        );
+        hasSpeechRef.current = vadStateRef.current.hasSpeech;
+
+        if (event === "pre_speech_start") {
+          if (!preSpeechTriggeredRef.current) {
+            const now = Date.now();
+            preSpeechTriggeredRef.current = true;
+            preSpeechTsRef.current = now;
+            console.log("[VoiceInput] Early pre-speech barge-in", {
+              event,
+              rms: rms.toFixed(4),
+              speechBandRatio: speechBandRatio.toFixed(3),
+              zcr: zcr.toFixed(3),
+            });
           }
-          hasSpeechRef.current = true;
-          silentSinceRef.current = null;
-        } else if (hasSpeechRef.current) {
-          // silence after speech
-          if (silentSinceRef.current === null) {
-            silentSinceRef.current = Date.now();
-          } else if (Date.now() - silentSinceRef.current >= SILENCE_DURATION_MS) {
-            console.log("[VoiceInput] Silence detected after speech, committing...");
-            // stop the recorder — onstop will handle transcription
-            stopVAD();
-            if (recorder.state === "recording") {
-              try { recorder.stop(); } catch { /* noop */ }
-            }
+          return;
+        }
+
+        if (event === "speech_start") {
+          const now = Date.now();
+          speechConfirmTsRef.current = now;
+          onSpeechStart?.();
+          const preSpeechToConfirmMs = preSpeechTsRef.current !== null ? now - preSpeechTsRef.current : null;
+          console.log("[VoiceInput] Confirmed speech onset", {
+            event,
+            rms: rms.toFixed(4),
+            speechBandRatio: speechBandRatio.toFixed(3),
+            zcr: zcr.toFixed(3),
+            preSpeechTriggered: preSpeechTsRef.current !== null,
+            preSpeechToConfirmMs,
+            bargeInEarlyMs: preSpeechToConfirmMs,
+          });
+          return;
+        }
+
+        if (event === "force_commit_noise") {
+          segmentDropReasonRef.current = "forced_noise";
+          stopVAD();
+          if (recorder.state === "recording") {
+            try { recorder.stop(); } catch { /* noop */ }
+          }
+          return;
+        }
+
+        if (event === "rotate_idle") {
+          segmentDropReasonRef.current = "idle_rotate";
+          stopVAD();
+          if (recorder.state === "recording") {
+            try { recorder.stop(); } catch { /* noop */ }
+          }
+          return;
+        }
+
+        if (event === "commit_silence") {
+          stopVAD();
+          if (recorder.state === "recording") {
+            try { recorder.stop(); } catch { /* noop */ }
           }
         }
-        // if no speech yet and silence — do nothing, keep waiting
       }, ANALYSIS_INTERVAL_MS);
 
-      // when recorder stops (from VAD commit or external stop)
       return new Promise<void>((resolve) => {
         recorder.onstop = async () => {
           setRecState(false);
@@ -218,33 +374,78 @@ export default function VoiceInput({
 
           const chunks = chunksRef.current;
           chunksRef.current = [];
+          const vadSnapshot = vadStateRef.current;
           const hadSpeech = hasSpeechRef.current;
           hasSpeechRef.current = false;
-          silentSinceRef.current = null;
+          vadStateRef.current = createVADState(0.003, Date.now());
 
-          if (hadSpeech && chunks.length > 0) {
-            const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
-            console.log("[VoiceInput] Sending", blob.size, "bytes to Sarvam STT...");
-            const transcript = await transcribeBlob(blob);
+          const dropReason = segmentDropReasonRef.current;
+          segmentDropReasonRef.current = "none";
 
-            if (transcript && mountedRef.current) {
-              const now = Date.now();
-              const last = lastSubmittedRef.current;
-              if (!(transcript.toLowerCase() === last.text.toLowerCase() && now - last.ts < DEDUP_WINDOW_MS)) {
-                lastSubmittedRef.current = { text: transcript, ts: now };
-                console.log("[VoiceInput] Transcript:", transcript);
-                onFinalTranscript(transcript);
-              }
+          const qualifiedSpeechMs = vadSnapshot.qualifiedVoicedFrames * ANALYSIS_INTERVAL_MS;
+          const recordingDurationMs = Math.max(0, Date.now() - recordingStartedAtRef.current);
+          recordingStartedAtRef.current = 0;
+          const frameCount = frameCountRef.current;
+          const rmsAvg = frameCount > 0 ? rmsSumRef.current / frameCount : 0;
+          const speechBandAvg = frameCount > 0 ? speechBandSumRef.current / frameCount : 0;
+          const zcrAvg = frameCount > 0 ? zcrSumRef.current / frameCount : 0;
+          const preSpeechTs = preSpeechTsRef.current;
+          const speechConfirmTs = speechConfirmTsRef.current;
+          frameCountRef.current = 0;
+          rmsSumRef.current = 0;
+          speechBandSumRef.current = 0;
+          zcrSumRef.current = 0;
+          preSpeechTriggeredRef.current = false;
+          preSpeechTsRef.current = null;
+          speechConfirmTsRef.current = null;
+
+          const dropDecision = shouldDropSegment({
+            dropReason,
+            hadSpeech,
+            qualifiedVoicedFrames: vadSnapshot.qualifiedVoicedFrames,
+            qualifiedSpeechMs,
+            minSttQualifiedVoicedFrames: MIN_STT_QUALIFIED_VOICED_FRAMES,
+            minSttQualifiedSpeechMs: MIN_STT_QUALIFIED_SPEECH_MS,
+            minIdleRotateQualifiedFrames: MIN_IDLE_ROTATE_QUALIFIED_FRAMES,
+          });
+
+          if (dropDecision.shouldDrop || chunks.length === 0) {
+            console.log("[VoiceInput] Dropping noisy segment", {
+              dropReason,
+              qualifiedFrames: vadSnapshot.qualifiedVoicedFrames,
+              recordingDurationMs,
+              qualifiedSpeechMs,
+              skippedByQualityGate: dropDecision.skippedByQualityGate,
+              preSpeechTriggered: preSpeechTs !== null,
+              preSpeechToConfirmMs: preSpeechTs !== null && speechConfirmTs !== null ? speechConfirmTs - preSpeechTs : null,
+              bargeInEarlyMs: preSpeechTs !== null && speechConfirmTs !== null ? speechConfirmTs - preSpeechTs : null,
+              rmsAvg: rmsAvg.toFixed(4),
+              speechBandAvg: speechBandAvg.toFixed(3),
+              zcrAvg: zcrAvg.toFixed(3),
+            });
+            resolve();
+            return;
+          }
+
+          const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+          const transcript = await transcribeBlob(blob);
+
+          if (transcript && mountedRef.current) {
+            const now = Date.now();
+            const last = lastSubmittedRef.current;
+            if (!(transcript.toLowerCase() === last.text.toLowerCase() && now - last.ts < DEDUP_WINDOW_MS)) {
+              lastSubmittedRef.current = { text: transcript, ts: now };
+              console.log("[VoiceInput] Transcript:", transcript);
+              onFinalTranscript(transcript);
             }
           }
           resolve();
         };
       });
     },
-    [ensureAnalyser, onFinalTranscript, setRecState, stopVAD, transcribeBlob],
+    [ensureAnalyser, onFinalTranscript, onSpeechStart, setRecState, stopVAD, transcribeBlob],
   );
 
-  /* ── main effect: start/stop the continuous recording loop ── */
   const loopActiveRef = useRef(false);
 
   useEffect(() => {
@@ -254,8 +455,7 @@ export default function VoiceInput({
       return;
     }
 
-    // start the loop
-    if (loopActiveRef.current) return; // already running
+    if (loopActiveRef.current) return;
     loopActiveRef.current = true;
 
     let cancelled = false;
@@ -267,19 +467,15 @@ export default function VoiceInput({
         return;
       }
 
-      // continuous loop: record → transcribe → restart
       while (!cancelled && mountedRef.current) {
         try {
           await runRecordLoop(stream);
         } catch (err) {
           console.warn("[VoiceInput] loop error:", err);
-          // small delay before retry
           await new Promise((r) => setTimeout(r, 500));
         }
 
-        // check if we should continue
         if (cancelled) break;
-        // small gap between recordings
         await new Promise((r) => setTimeout(r, 200));
       }
 
@@ -293,15 +489,22 @@ export default function VoiceInput({
     };
   }, [sessionActive, suspended, ensureStream, runRecordLoop, discardRecording]);
 
-  /* ── react to resetSignal: discard current recording ── */
   useEffect(() => {
     if (!resetSignal) return;
     chunksRef.current = [];
     hasSpeechRef.current = false;
-    silentSinceRef.current = null;
+    vadStateRef.current = createVADState(0.003, Date.now());
+    segmentDropReasonRef.current = "none";
+    recordingStartedAtRef.current = 0;
+    frameCountRef.current = 0;
+    rmsSumRef.current = 0;
+    speechBandSumRef.current = 0;
+    zcrSumRef.current = 0;
+    preSpeechTriggeredRef.current = false;
+    preSpeechTsRef.current = null;
+    speechConfirmTsRef.current = null;
   }, [resetSignal]);
 
-  /* ── cleanup on unmount ── */
   useEffect(() => {
     mountedRef.current = true;
     return () => {
