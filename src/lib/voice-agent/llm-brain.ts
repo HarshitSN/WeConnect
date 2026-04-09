@@ -21,7 +21,11 @@ Your goal is one of two actions:
 CRITICAL GUARDRAILS:
 - Do NOT let the user talk about unrelated topics. Politely redirect them to the CURRENT_QUESTION.
 - If you use "answered", the text must be conversational, friendly, and short (under 2 sentences) because it will be spoken by a TTS engine.
-- If the step involves NAICS codes and they state their business, try to match it to one of the NAICS names provided in the CONTEXT. If uncertain, suggest one as a question in "answered".
+- For NAICS/UNSPSC steps, prefer conversational clarification and suggestion first; only ask for direct code as a last resort.
+- If CONTEXT includes suggested candidates, use them to ask a crisp confirmation question.
+- If uncertain, provide top options in plain words and ask the user to pick one.
+- For owner_details, extract in this normalized format: "Name is <full name>, gender is <female|male|non_binary|other>, ownership is <number> percent".
+- For num_employees and revenue_range, extractedValue must be one of the exact internal buckets from CONTEXT.
 
 RETURN JSON EXCLUSIVELY. Do NOT wrap in \`\`\`json blocks. Just raw JSON conforming to this schema:
 {
@@ -29,6 +33,27 @@ RETURN JSON EXCLUSIVELY. Do NOT wrap in \`\`\`json blocks. Just raw JSON conform
   "extractedValue"?: "string",
   "responseText"?: "string"
 }`;
+
+function latestSuggestionContext(
+  stepId: ConversationPointer["stepId"],
+  history?: { role: string; text: string }[],
+): string {
+  if (!history?.length || (stepId !== "naics_codes" && stepId !== "unspsc_codes")) return "";
+  const tag = stepId === "naics_codes" ? "NAICS" : "UNSPSC";
+  const assistantTexts = history.filter((h) => h.role === "assistant").map((h) => h.text).reverse();
+  for (const text of assistantTexts) {
+    const matches = Array.from(text.matchAll(new RegExp(`[123]\\)\\s*([^()]+?)\\s*\\(${tag}\\s+([0-9-]+)\\)`, "gi")));
+    if (matches.length > 0) {
+      const compact = matches.slice(0, 3).map((m, i) => `${i + 1}) ${m[1].trim()} (${tag} ${m[2]})`).join("; ");
+      return `Recent suggested ${tag} options: ${compact}`;
+    }
+    const single = text.match(new RegExp(`\\(${tag}\\s+([0-9-]+)\\)`, "i"));
+    if (single) {
+      return `Recent suggested ${tag} code: ${single[1]}`;
+    }
+  }
+  return "";
+}
 
 export async function processWithBrain(
   pointer: ConversationPointer,
@@ -53,6 +78,12 @@ export async function processWithBrain(
   } else if (pointer.stepId === "unspsc_codes") {
     const list = UNSPSC_CODES.slice(0, 50).map((c) => c.code + " - " + c.label).join("\n");
     contextStr = "Valid UNSPSC Categories:\n" + list + "\n... (truncated)";
+  } else if (pointer.stepId === "owner_details") {
+    contextStr = "Owner extraction format: Name is <full name>, gender is <female|male|non_binary|other>, ownership is <number> percent";
+  } else if (pointer.stepId === "num_employees") {
+    contextStr = "Valid Employee Buckets: 1-10, 11-50, 51-200, 201-500, 501-1000, 1000+";
+  } else if (pointer.stepId === "revenue_range") {
+    contextStr = "Valid Revenue Buckets: Under $100K, $100K–$500K, $500K–$1M, $1M–$5M, $5M–$25M, $25M+";
   } else if (pointer.stepId === "cert_type") {
     contextStr = "Valid Certification Types: self, digital";
   }
@@ -61,6 +92,7 @@ export async function processWithBrain(
   if (history && history.length > 0) {
     historyStr = history.map(h => `${h.role === "assistant" ? "Assistant" : "User"}: ${h.text}`).join("\n");
   }
+  const suggestionContext = latestSuggestionContext(pointer.stepId, history);
 
   const userMessage = `RECENT CHAT HISTORY:
 ${historyStr}
@@ -69,6 +101,7 @@ CURRENT_QUESTION: "${currentQuestion}"
 STEP_ID: "${pointer.stepId}"
 CONTEXT:
 ${contextStr}
+${suggestionContext ? "\n" + suggestionContext : ""}
 
 USER_ANSWER: "${userAnswer}"`;
 

@@ -2,7 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { parseStepAnswer } from "@/lib/voice-agent/engine";
-import { normalizeOwnerName, parseOwnerDetails } from "@/lib/voice-agent/normalizers";
+import {
+  isLikelyOwnerName,
+  normalizeOwnerName,
+  parseEmployeeRange,
+  parseNaicsCodes,
+  parseOwnerDetails,
+  parseRevenueRange,
+  parseUnspscCodes,
+  suggestNaicsMatches,
+  suggestUnspscMatches,
+} from "@/lib/voice-agent/normalizers";
 import type { RegistrationState } from "@/types";
 
 function baseState(overrides: Partial<RegistrationState> = {}): RegistrationState {
@@ -39,6 +49,16 @@ test("parseOwnerDetails isolates owner name from sentence-style response", () =>
     "The full name is Priya Malhotra and her gender is female and the ownership is 100 percent.",
   );
   assert.deepEqual(details, { name: "Priya Malhotra", gender: "female", percent: 100 });
+});
+
+test("owner sentence with noisy prefixes keeps only clean name", () => {
+  const details = parseOwnerDetails(
+    "Owner one is Harshit Malik and the ownership is 100% and he is a male.",
+  );
+  assert.equal(details.name, "Harshit Malik");
+  assert.equal(details.gender, "male");
+  assert.equal(details.percent, 100);
+  assert.equal(isLikelyOwnerName(details.name), true);
 });
 
 test("owner_add_more moves forward when total is 100 and user says yes", () => {
@@ -110,4 +130,86 @@ test("existing yes/no steps still parse explicit yes/no responses", () => {
   assert.equal(webank.ok, true);
   assert.equal(webank.updates?.webank_certified, false);
   assert.equal(webank.next.stepId, "naics_codes");
+});
+
+test("naics parser maps natural language logistics to transportation sector", () => {
+  const direct = parseNaicsCodes("We run a logistics and warehousing company for cross-border shipping.");
+  assert.equal(direct[0], "48-49");
+
+  const ranked = suggestNaicsMatches("We handle freight logistics and warehousing.");
+  assert.equal(ranked[0]?.code, "48-49");
+});
+
+test("unspsc parser maps office furniture and supplies language", () => {
+  const direct = parseUnspscCodes("We supply office furniture and daily office supplies.");
+  assert.ok(direct.includes("44000000") || direct.includes("56000000"));
+
+  const ranked = suggestUnspscMatches("Our products include desks, chairs, and office supplies.");
+  const codes = ranked.map((r) => r.code);
+  assert.ok(codes.includes("44000000") || codes.includes("56000000"));
+});
+
+test("naics step auto-accepts high confidence natural language", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "Our company provides transportation and warehousing services.",
+    baseState(),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.next.stepId, "unspsc_codes");
+  assert.equal(result.updates?.naics_codes?.[0], "48-49");
+});
+
+test("naics step asks for confirmation on medium confidence matches", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "We do technical work for client teams.",
+    baseState(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.next.stepId, "naics_codes");
+  assert.match(result.clarification ?? "", /say yes to confirm|which one is closest/i);
+});
+
+test("naics step offers top choices on low confidence response", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "We do many different things across projects.",
+    baseState(),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.next.stepId, "naics_codes");
+  assert.match(result.clarification ?? "", /which one is closest/i);
+});
+
+test("naics step still accepts direct numeric code input", () => {
+  const result = parseStepAnswer(
+    { stepId: "naics_codes" },
+    "54",
+    baseState(),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.updates?.naics_codes?.[0], "54");
+});
+
+test("employee mapping handles natural intervals and approximate values", () => {
+  assert.equal(parseEmployeeRange("between 500 to 1000"), "501-1000");
+  assert.equal(parseEmployeeRange("around 900 employees"), "501-1000");
+  assert.equal(parseEmployeeRange("more than 1000"), "1000+");
+});
+
+test("revenue mapping handles natural million and k variants", () => {
+  assert.equal(parseRevenueRange("5 to 25 million"), "$5M–$25M");
+  assert.equal(parseRevenueRange("25 mil rahe hain"), "$25M+");
+  assert.equal(parseRevenueRange("100k to 500k"), "$100K–$500K");
+});
+
+test("owner_details step stores clean owner name from noisy response", () => {
+  const result = parseStepAnswer(
+    { stepId: "owner_details", ownerIndex: 0 },
+    "Owner one is Harshit Malik and the ownership is 100% and he is a male.",
+    baseState({ ownership_structure: [{ name: "", gender: "female", percent: 0 }] }),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.ownershipUpdate?.[0].name, "Harshit Malik");
 });

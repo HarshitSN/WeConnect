@@ -96,9 +96,17 @@ export function normalizeBusinessName(input: string): string {
 }
 
 export function normalizeOwnerName(input: string): string {
-  let text = input.replace(/\b(?:gender|ownership|holds|owns|percent|percentage|%|male|female|man|woman|non\s*binary).*$/i, "");
+  let text = input
+    .replace(/\b(?:gender|ownership|holds|owns|percent|percentage|%|male|female|man|woman|non\s*binary).*$/i, "")
+    .replace(/\bowner\s*(one|1|two|2|three|3)\b/ig, " ")
+    .replace(/\b(owner|the owner|my owner)\b/ig, " ");
   
   const stripped = stripLeadingPhrases(text, [
+    "owner\\s*(?:one|1|two|2|three|3)\\s+is",
+    "owner\\s+is",
+    "the\\s+owner\\s+is",
+    "my\\s+owner\\s+is",
+    "owner",
     "the\\s+full\\s+name\\s+is",
     "owner\\s+full\\s+name\\s+is",
     "my\\s+name\\s+is",
@@ -124,13 +132,29 @@ export function normalizeOwnerName(input: string): string {
     prev = cleaned;
     cleaned = cleaned
       .replace(/\b(?:and\s+(?:she'?s|he'?s|they'?re|their|her|his|the|a|an)|and)\s*$/ig, "")
-      .replace(/\s+(?:the|is|are|a|an|ownership|holds|she'?s|he'?s|they'?re|her|his|their)\s*$/ig, "")
+      .replace(/\s+(?:the|is|are|a|an|ownership|holds|she'?s|he'?s|they'?re|her|his|their|owner|one|two|three|percent)\s*$/ig, "")
+      .replace(/^(?:is|are)\s+/ig, "")
       .replace(/^(?:and|also)\s+|\s+(?:and|also)$/ig, "")
+      .replace(/\b(?:and\s+he|and\s+she|and\s+they)\b/ig, " ")
       .replace(/^,+|,+$/g, "")
       .replace(/[.]+$/g, "")
+      .replace(/[%|]/g, " ")
       .trim();
   } while (cleaned !== prev);
   return toTitleCase(cleaned || text.trim() || input.trim());
+}
+
+export function isLikelyOwnerName(input: string): boolean {
+  const normalized = input
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return false;
+  const low = normalized.toLowerCase();
+  if (/\b(owner|ownership|percent|male|female|gender|he|she|they|one|two|three)\b/.test(low)) return false;
+  if (/[%|0-9]/.test(normalized)) return false;
+  const parts = normalized.split(" ").filter(Boolean);
+  if (parts.length < 2 || parts.length > 5) return false;
+  return parts.every((p) => /^[a-z][a-z'.-]*$/i.test(p));
 }
 
 export function normalizeCountry(input: string): string {
@@ -193,43 +217,156 @@ function wordMatchScore(inputWords: string[], targetWord: string) {
   return maxScore;
 }
 
-function findCodesByLabelOrCode(
+const STOP_WORDS = new Set([
+  "and", "the", "a", "an", "for", "of", "in", "on", "at", "to", "with", "from",
+  "we", "our", "business", "company", "services", "service", "products", "product",
+  "provide", "offering", "offer", "sell", "build", "run", "do",
+]);
+
+export interface CodeMatchCandidate {
+  code: string;
+  label: string;
+  score: number;
+}
+
+const NAICS_ALIASES: Record<string, string[]> = {
+  "11": ["agriculture", "farming", "farm", "forestry", "fishing", "hunting", "crops", "livestock"],
+  "21": ["mining", "quarry", "oil", "gas", "extraction", "drilling"],
+  "22": ["utilities", "electricity", "power", "water utility", "energy distribution"],
+  "23": ["construction", "contractor", "civil work", "building contractor"],
+  "31-33": ["manufacturing", "factory", "assembly", "production", "made goods", "fabrication"],
+  "42": ["wholesale", "bulk supply", "distributor", "distribution"],
+  "44-45": ["retail", "store", "shop", "ecommerce", "online store", "consumer sales"],
+  "48-49": ["transportation", "logistics", "warehousing", "freight", "shipping", "delivery", "courier"],
+  "51": ["information", "media", "software publishing", "telecom", "data services"],
+  "52": ["finance", "financial", "insurance", "banking", "fintech"],
+  "53": ["real estate", "property management", "rental", "leasing"],
+  "54": ["consulting", "professional services", "technical services", "legal", "accounting", "it services", "engineering"],
+  "55": ["holding company", "corporate management", "enterprise management"],
+  "56": ["admin support", "outsourcing", "back office", "staffing", "facilities support"],
+  "61": ["education", "training", "learning", "edtech", "coaching"],
+  "62": ["healthcare", "medical", "clinic", "hospital", "social assistance", "wellness"],
+  "71": ["arts", "entertainment", "recreation", "events", "gaming"],
+  "72": ["hospitality", "accommodation", "food service", "restaurant", "hotel", "catering"],
+  "81": ["repair", "maintenance", "personal services", "laundry", "salon"],
+};
+
+const UNSPSC_ALIASES: Record<string, string[]> = {
+  "23000000": ["industrial machinery", "equipment"],
+  "25000000": ["vehicles", "transport equipment", "fleet"],
+  "30000000": ["building materials", "construction materials"],
+  "42000000": ["medical equipment", "medical accessories"],
+  "43000000": ["it", "software", "technology", "information technology", "cybersecurity"],
+  "44000000": ["office supplies", "office equipment", "stationery"],
+  "47000000": ["cleaning supplies", "janitorial", "sanitation"],
+  "50000000": ["food", "beverage", "grocery"],
+  "56000000": ["furniture", "furnishings"],
+  "70000000": ["farming", "fishing"],
+  "72000000": ["construction services", "building services"],
+  "76000000": ["industrial cleaning", "facility cleaning"],
+  "77000000": ["environmental services", "waste management"],
+  "78000000": ["transportation services", "storage services", "logistics services", "warehousing services"],
+  "80000000": ["management consulting", "business consulting", "professional services"],
+  "81000000": ["engineering services", "research services", "r&d"],
+  "82000000": ["design services", "editorial services", "creative services"],
+  "84000000": ["financial services", "insurance services"],
+  "85000000": ["healthcare services", "medical services", "clinical services"],
+  "86000000": ["education services", "training services"],
+  "90000000": ["travel services", "food services", "hospitality services"],
+};
+
+function normalizedTokens(input: string): string[] {
+  return clean(input)
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
+}
+
+function explicitCodeHits(
   input: string,
   options: Array<{ code: string; label: string }>,
 ): string[] {
   const t = clean(input);
-  const inputWords = t.split(/\s+/);
   const explicitCodes: string[] = t.match(/\b\d{2}(?:\s*\d{2})?\b|\b\d{8}\b/g) ?? [];
-  const codeHits = options
+  return options
     .filter((opt) => explicitCodes.includes(clean(opt.code)))
     .map((opt) => opt.code);
+}
 
-  const labelHits = options
-    .filter((opt) => {
-      const label = clean(opt.label);
-      if (t.includes(label)) return true;
-      
-      const labelWords = label.split(/\s+/).filter((w: string) => w.length > 3);
-      if (labelWords.length === 0) return false;
-      
-      let totalScore = 0;
-      for (const lw of labelWords) {
-        totalScore += wordMatchScore(inputWords, lw);
+function scoreCodeCandidates(
+  input: string,
+  options: Array<{ code: string; label: string }>,
+  aliasesByCode: Record<string, string[]> = {},
+): CodeMatchCandidate[] {
+  const t = clean(input);
+  const inputWords = t.split(/\s+/);
+  const tokenSet = new Set(normalizedTokens(input));
+  const directCodes = new Set(explicitCodeHits(input, options));
+  const results: CodeMatchCandidate[] = [];
+
+  for (const opt of options) {
+    const label = clean(opt.label);
+    const labelTokens = normalizedTokens(opt.label);
+    const aliases = aliasesByCode[opt.code] ?? [];
+
+    let score = 0;
+    if (directCodes.has(opt.code)) score = 1;
+
+    if (t.includes(label)) score = Math.max(score, 0.94);
+
+    if (labelTokens.length > 0) {
+      const overlap = labelTokens.filter((w) => tokenSet.has(w)).length;
+      const overlapScore = overlap / labelTokens.length;
+      score = Math.max(score, overlapScore * 0.8);
+
+      let fuzzyTotal = 0;
+      for (const lw of labelTokens) {
+        fuzzyTotal += wordMatchScore(inputWords, lw);
       }
-      const avgScore = totalScore / labelWords.length;
-      return avgScore > 0.65;
-    })
-    .map((opt) => opt.code);
+      const fuzzyScore = fuzzyTotal / labelTokens.length;
+      score = Math.max(score, fuzzyScore * 0.75);
+    }
 
-  return Array.from(new Set([...codeHits, ...labelHits]));
+    if (aliases.length > 0) {
+      let bestAliasScore = 0;
+      let bestAliasTokenCount = 0;
+      for (const alias of aliases) {
+        const aliasTokens = normalizedTokens(alias);
+        if (aliasTokens.length === 0) continue;
+        const aliasHits = aliasTokens.filter((w) => tokenSet.has(w)).length;
+        const aliasScore = aliasHits / aliasTokens.length;
+        if (aliasScore > bestAliasScore) {
+          bestAliasScore = aliasScore;
+          bestAliasTokenCount = aliasTokens.length;
+        }
+      }
+      const aliasWeight = bestAliasTokenCount <= 1 ? 0.74 : 0.96;
+      score = Math.max(score, bestAliasScore * aliasWeight);
+    }
+
+    if (score >= 0.2) {
+      results.push({ code: opt.code, label: opt.label, score: Number(score.toFixed(3)) });
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score);
+}
+
+export function suggestNaicsMatches(input: string): CodeMatchCandidate[] {
+  return scoreCodeCandidates(input, NAICS_CODES, NAICS_ALIASES).slice(0, 3);
+}
+
+export function suggestUnspscMatches(input: string): CodeMatchCandidate[] {
+  return scoreCodeCandidates(input, UNSPSC_CODES, UNSPSC_ALIASES).slice(0, 3);
 }
 
 export function parseNaicsCodes(input: string): string[] {
-  return findCodesByLabelOrCode(input, NAICS_CODES);
+  const ranked = suggestNaicsMatches(input);
+  return ranked.filter((r) => r.score >= 0.6).map((r) => r.code);
 }
 
 export function parseUnspscCodes(input: string): string[] {
-  return findCodesByLabelOrCode(input, UNSPSC_CODES);
+  const ranked = suggestUnspscMatches(input);
+  return ranked.filter((r) => r.score >= 0.6).map((r) => r.code);
 }
 
 /**
@@ -368,6 +505,46 @@ export function parseOwnerDetails(input: string): { name: string; gender: "femal
 export function parseEmployeeRange(input: string): string | null {
   const t = clean(input);
 
+  const toNumber = (raw: string): number => Number(raw.replace(/,/g, ""));
+  const mapCountToRange = (count: number): string => {
+    if (count <= 10) return "1-10";
+    if (count <= 50) return "11-50";
+    if (count <= 200) return "51-200";
+    if (count <= 500) return "201-500";
+    if (count <= 1000) return "501-1000";
+    return "1000+";
+  };
+
+  // Interval first (e.g., "between 500 and 1000", "500 to 1000")
+  const interval = t.match(/\b(?:between\s+)?(\d{1,4}(?:,\d{3})?)\s*(?:to|and|-)\s*(\d{1,4}(?:,\d{3})?)\b/);
+  if (interval) {
+    const a = toNumber(interval[1]);
+    const b = toNumber(interval[2]);
+    const low = Math.min(a, b);
+    const high = Math.max(a, b);
+    const midpoint = Math.round((low + high) / 2);
+    return mapCountToRange(midpoint);
+  }
+
+  // Approximate single value (e.g., "around 900", "about 300")
+  const approx = t.match(/\b(?:around|about|roughly|approximately|near)\s+(\d{1,4}(?:,\d{3})?)\b/);
+  if (approx) return mapCountToRange(toNumber(approx[1]));
+
+  // Comparatives
+  const moreThan = t.match(/\b(?:more\s+than|over|above)\s+(\d{1,4}(?:,\d{3})?)\b/);
+  if (moreThan) {
+    const n = toNumber(moreThan[1]);
+    return n >= 1000 ? "1000+" : mapCountToRange(n + 1);
+  }
+  const lessThan = t.match(/\b(?:less\s+than|under|below)\s+(\d{1,4}(?:,\d{3})?)\b/);
+  if (lessThan) {
+    const n = Math.max(1, toNumber(lessThan[1]) - 1);
+    return mapCountToRange(n);
+  }
+
+  const single = t.match(/\b(\d{1,4}(?:,\d{3})?)\b/);
+  if (single) return mapCountToRange(toNumber(single[1]));
+
   // direct match first
   const direct = EMPLOYEE_RANGES.find((r) => t.includes(clean(r)));
   if (direct) return direct;
@@ -397,6 +574,61 @@ export function parseEmployeeRange(input: string): string | null {
  */
 export function parseRevenueRange(input: string): string | null {
   const t = clean(input);
+  const amountPatterns = /(\d+(?:\.\d+)?)\s*(k|m|mn|mil|million|thousand|lakh|lakhs|crore|crores)?/g;
+  const amounts: number[] = [];
+
+  const unitToMultiplier = (unit: string | undefined): number => {
+    switch ((unit ?? "").toLowerCase()) {
+      case "k": return 1_000;
+      case "thousand": return 1_000;
+      case "m":
+      case "mn":
+      case "mil":
+      case "million": return 1_000_000;
+      case "lakh":
+      case "lakhs": return 100_000;
+      case "crore":
+      case "crores": return 10_000_000;
+      default: return 1;
+    }
+  };
+
+  for (const m of Array.from(t.matchAll(amountPatterns))) {
+    const raw = Number(m[1]);
+    if (Number.isNaN(raw)) continue;
+    const value = raw * unitToMultiplier(m[2]);
+    if (value > 0) amounts.push(value);
+  }
+
+  const mapAmountToRange = (amount: number): string => {
+    if (amount < 100_000) return "Under $100K";
+    if (amount < 500_000) return "$100K–$500K";
+    if (amount < 1_000_000) return "$500K–$1M";
+    if (amount < 5_000_000) return "$1M–$5M";
+    if (amount < 25_000_000) return "$5M–$25M";
+    return "$25M+";
+  };
+
+  // Interval first for natural phrasing like "5 to 25 million"
+  const interval = t.match(/\b(?:between\s+)?(\d+(?:\.\d+)?)\s*(k|m|mn|mil|million|thousand|lakh|lakhs|crore|crores)?\s*(?:to|and|-)\s*(\d+(?:\.\d+)?)\s*(k|m|mn|mil|million|thousand|lakh|lakhs|crore|crores)?\b/);
+  if (interval) {
+    const left = Number(interval[1]) * unitToMultiplier(interval[2]);
+    const right = Number(interval[3]) * unitToMultiplier(interval[4] || interval[2]);
+    if (!Number.isNaN(left) && !Number.isNaN(right)) {
+      const low = Math.min(left, right);
+      const high = Math.max(left, right);
+      if (low === 25_000_000 && high === 25_000_000) return "$25M+";
+      const midpoint = (low + high) / 2;
+      return mapAmountToRange(midpoint);
+    }
+  }
+
+  if (amounts.length > 0) {
+    // Exact 25M follows inclusive threshold rule -> $25M+
+    const primary = amounts[0];
+    if (primary === 25_000_000) return "$25M+";
+    return mapAmountToRange(primary);
+  }
 
   // direct match
   const direct = REVENUE_RANGES.find((r) => t.includes(clean(r)));
